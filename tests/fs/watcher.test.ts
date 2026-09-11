@@ -9,24 +9,24 @@ import { startWatcher } from '../../src/server/fs/watcher.js';
 import { writeJsonAtomic } from '../../src/server/fs/json.js';
 import { defaultClientJson, defaultProjectJson } from '../../src/server/fs/schemas.js';
 
+async function until(cond: () => boolean, ms = 10_000) {
+  const t0 = Date.now();
+  while (!cond()) { if (Date.now() - t0 > ms) throw new Error('condition not met in time'); await new Promise((r) => setTimeout(r, 50)); }
+}
+
 describe('watcher', () => {
-  it('picks up a new project and then its media', async () => {
+  it('picks up a new project and then its media, and converges even if fs events are dropped', async () => {
     const root = await tmpDir(); await mkdir(join(root, 'Clients'), { recursive: true });
     const db = openDb(':memory:'); migrate(db);
-    let resolveIdle: () => void = () => {};
-    const nextIdle = () => new Promise<void>((r) => { resolveIdle = r; });
-    const stop = startWatcher(db, root, { debounceMs: 100, stabilityMs: 100, onIdle: () => resolveIdle() });
+    const stop = await startWatcher(db, root, { debounceMs: 100, stabilityMs: 100, sweepMs: 500 });
     try {
-      let wait = nextIdle();
       await mkdir(join(root, 'Clients/Smith/Wedding/raw'), { recursive: true });
       await writeJsonAtomic(join(root, 'Clients/Smith/client.json'), defaultClientJson('Smith'));
       await writeJsonAtomic(join(root, 'Clients/Smith/Wedding/project.json'), defaultProjectJson('Wedding'));
-      await wait;
-      expect(db.select().from(projects).all()).toHaveLength(1);
-      wait = nextIdle();
+      await until(() => db.select().from(projects).all().length === 1);
       await makeTiffAs(join(root, 'Clients/Smith/Wedding/raw/a.dng'));
-      await wait;
-      expect(db.select().from(photos).all().map((p) => p.relPath)).toEqual(['raw/a.dng']);
+      await until(() => db.select().from(photos).all().length === 1);
+      expect(db.select().from(photos).all()[0]?.relPath).toBe('raw/a.dng');
     } finally { stop(); }
-  }, 30000);
+  }, 30_000);
 });

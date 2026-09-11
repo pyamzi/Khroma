@@ -26,7 +26,7 @@ async function main() {
   for (const p of db.select({ id: projects.id }).from(projects).all()) {
     await indexProjectMedia(db, config.photosDir, p.id).catch((e) => console.error('[boot] index', p.id, e));
   }
-  const stopWatcher = startWatcher(db, config.photosDir);
+  const stopWatcher = await startWatcher(db, config.photosDir);
 
   const server = serve({ fetch: createApp({ db, config, photosDir: config.photosDir }).fetch, port: config.port }, () => console.log(`[boot] listening on ${config.port}`));
   const shutdown = () => { stopWatcher(); stopWorker(); server.close(); process.exit(0); };

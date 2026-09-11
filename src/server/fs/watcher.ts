@@ -6,9 +6,14 @@ import { rescan } from './index.js';
 import { indexProjectMedia } from './photos.js';
 
 const STRUCTURAL = new Set(['client.json', 'project.json']);
+export type WatcherOpts = { debounceMs?: number; stabilityMs?: number; sweepMs?: number; onIdle?: () => void };
 
-/** Debounced, serialized disk → database reconciliation for Clients/. */
-export function startWatcher(db: Db, photosDir: string, opts: { debounceMs?: number; stabilityMs?: number; onIdle?: () => void } = {}): () => void {
+/**
+ * Debounced, serialized disk → database reconciliation for Clients/.
+ * Filesystem events give responsiveness; a periodic full sweep guarantees convergence,
+ * because fs.watch drops events under load (observed on macOS) and inotify queues overflow.
+ */
+export async function startWatcher(db: Db, photosDir: string, opts: WatcherOpts = {}): Promise<() => void> {
   const debounceMs = opts.debounceMs ?? 1500;
   let needRescan = false; const dirtyProjects = new Set<string>();
   let timer: NodeJS.Timeout | null = null; let running = false; let again = false;
@@ -48,5 +53,8 @@ export function startWatcher(db: Db, photosDir: string, opts: { debounceMs?: num
     awaitWriteFinish: { stabilityThreshold: opts.stabilityMs ?? 2000, pollInterval: 200 },
   });
   for (const ev of ['add', 'change', 'unlink', 'addDir', 'unlinkDir'] as const) w.on(ev, (p: string) => onEvent(ev, p));
-  return () => { if (timer) clearTimeout(timer); void w.close(); };
+  w.on('error', (e) => console.error('[watcher]', e));
+  await new Promise<void>((resolve, reject) => { w.once('ready', resolve); w.once('error', reject); });
+  const sweep = setInterval(() => { needRescan = true; schedule(); }, opts.sweepMs ?? 60_000);
+  return () => { clearInterval(sweep); if (timer) clearTimeout(timer); void w.close(); };
 }
