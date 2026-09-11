@@ -1,11 +1,11 @@
 import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { dirname, join, basename } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import type { ZodType } from 'zod';
+import type { ZodTypeAny, output } from 'zod';
 
 export type ReadResult<T> = { ok: true; data: T } | { ok: false; error: string; missing?: boolean };
 
-export async function readJson<T>(file: string, schema: ZodType<T>): Promise<ReadResult<T>> {
+export async function readJson<S extends ZodTypeAny>(file: string, schema: S): Promise<ReadResult<output<S>>> {
   let raw: string;
   try { raw = await readFile(file, 'utf8'); }
   catch (e) { const code = (e as NodeJS.ErrnoException).code; return { ok: false, error: String(e), missing: code === 'ENOENT' }; }
