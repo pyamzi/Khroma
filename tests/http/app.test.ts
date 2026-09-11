@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpDir } from '../helpers.js';
 import { makeTiffAs } from '../fixtures/make.js';
@@ -87,6 +87,24 @@ describe('app', () => {
     expect((await api(`/api/projects/${p.id}/approve-transfer`, { method: 'POST', cookie })).status).toBe(401); // client is not admin
     await api('/api/auth/request', { method: 'POST', body: JSON.stringify({ email: 'stranger@x.com' }) }); await drain();
     expect(mail.sent).toHaveLength(2);                                                        // unknown email: nothing sent, same 200
+  });
+  it('admin approves a cross-client transfer and the issue clears', async () => {
+    const { db, api, app, mail, photosDir, setupOwner } = await boot();
+    const owner = await setupOwner(); const cookie = cookieOf(owner);
+    const p = defaultProjectJson('Wedding');
+    await mkdir(join(photosDir, 'Clients/Smith/Wedding'), { recursive: true }); await mkdir(join(photosDir, 'Clients/Other'), { recursive: true });
+    await writeJsonAtomic(join(photosDir, 'Clients/Smith/client.json'), defaultClientJson('Smith'));
+    await writeJsonAtomic(join(photosDir, 'Clients/Other/client.json'), defaultClientJson('Other'));
+    await writeJsonAtomic(join(photosDir, 'Clients/Smith/Wedding/project.json'), p);
+    await rescan(db, photosDir);
+    await rename(join(photosDir, 'Clients/Smith/Wedding'), join(photosDir, 'Clients/Other/Wedding'));
+    await rescan(db, photosDir);
+    expect((await (await api('/api/issues', { cookie })).json() as { kind: string }[]).map((i) => i.kind)).toEqual(['transfer_pending']);
+    expect((await api(`/api/projects/${p.id}/approve-transfer`, { method: 'POST', cookie })).status).toBe(200);
+    expect(await (await api('/api/issues', { cookie })).json()).toEqual([]);
+    expect((await (await api(`/api/projects/${p.id}`, { cookie })).json() as { transferPending: boolean; available: boolean })).toMatchObject({ transferPending: false, available: true });
+    expect((await api(`/api/projects/${p.id}/approve-transfer`, { method: 'POST', cookie })).status).toBe(409); // nothing pending now
+    void mail; void app;
   });
   it('rejects state-changing requests without the fetch header', async () => {
     const { app } = await boot();

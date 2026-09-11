@@ -3,7 +3,7 @@ import { eq, and } from 'drizzle-orm';
 import type { AppEnv } from '../session.js';
 import { listProjectsFor, loadProject, requireKind, isAdmin, type ProjectRow } from '../access.js';
 import { photos } from '../../db/schema.js';
-import { approveTransfer } from '../../fs/index.js';
+import { approveTransfer, rescan } from '../../fs/index.js';
 import { ProjectJson } from '../../fs/schemas.js';
 
 const summary = (p: ProjectRow) => ({
@@ -33,5 +33,6 @@ export const projectRoutes = (photosDir: string) => new Hono<AppEnv>()
   .post('/api/projects/:id/approve-transfer', requireKind('admin'), async (c) => {
     try { await approveTransfer(c.get('db'), photosDir, c.req.param('id'), c.get('session')!.subject); }
     catch (e) { return c.json({ error: (e as Error).message }, 409); }
+    await rescan(c.get('db'), photosDir); // refresh the issues snapshot
     return c.json({ ok: true });
   });
