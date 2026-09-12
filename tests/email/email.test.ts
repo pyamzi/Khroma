@@ -4,7 +4,8 @@ import { openDb, migrate } from '../../src/server/db/client.js';
 import { jobs } from '../../src/server/db/schema.js';
 import { runOnce } from '../../src/server/jobs/queue.js';
 import { renderTemplate } from '../../src/server/email/templates.js';
-import { memoryTransport, listmonkTransport } from '../../src/server/email/transport.js';
+import { memoryTransport, listmonkTransport, resolveTransport } from '../../src/server/email/transport.js';
+import { loadConfig } from '../../src/server/config.js';
 import { sendEmail, makeEmailHandlers } from '../../src/server/email/send.js';
 
 describe('email', () => {
@@ -37,5 +38,14 @@ describe('email', () => {
       await t.send({ to: 'a@x', subject: 'Hi', text: 'T', html: '<p>T</p>', messageId: '<m@x>' });
       expect(bodies[0]).toMatchObject({ url: '/api/tx', auth: 'token tok', body: { subscriber_email: 'a@x', template_id: 7, data: { subject: 'Hi', html: '<p>T</p>', text: 'T' } } });
     } finally { srv.close(); }
+  });
+
+  it('resolves a listmonk transport from the environment when no setting exists', () => {
+    const db = openDb(':memory:'); migrate(db);
+    const base = { DATA_DIR: '/tmp/d', PHOTOS_DIR: '/tmp/p', BASE_URL: 'https://g.example', SESSION_SECRET: 'x'.repeat(32) };
+    expect(resolveTransport(db, loadConfig(base))).toBeNull();
+    expect(resolveTransport(db, loadConfig({ ...base, LISTMONK_URL: 'http://lm:9000', LISTMONK_TOKEN: 't' }))).toBeNull(); // template id is required
+    expect(resolveTransport(db, loadConfig({ ...base, LISTMONK_URL: 'http://lm:9000', LISTMONK_TOKEN: 't', LISTMONK_TEMPLATE_ID: '7' }))?.describe()).toBe('listmonk http://lm:9000');
+    expect(resolveTransport(db, loadConfig({ ...base, SMTP_URL: 'smtp://u:p@h:587' }))?.describe()).toBe('smtp h:587');
   });
 });

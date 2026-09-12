@@ -15,6 +15,6 @@ const Body = z.object({
 export const setup = (config: Config) => new Hono<AppEnv>().post('/api/setup', async (c) => {
   const b = Body.safeParse(await c.req.json().catch(() => null));
   if (!b.success) return c.json({ error: 'invalid body' }, 400);
-  const r = completeSetup(c.get('db'), { ...b.data, baseUrl: config.baseUrl });
+  const r = completeSetup(c.get('db'), { ...b.data, baseUrl: config.baseUrl, secret: config.sessionSecret });
   return r.ok ? c.json({ ok: true }) : c.json({ error: r.error }, 400);
 });

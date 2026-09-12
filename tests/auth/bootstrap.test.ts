@@ -3,6 +3,8 @@ import { openDb, migrate } from '../../src/server/db/client.js';
 import { users, jobs } from '../../src/server/db/schema.js';
 import { getSetting } from '../../src/server/db/settings.js';
 import { createSetupToken, completeSetup, setupState, markSetupComplete } from '../../src/server/auth/bootstrap.js';
+import { getSecretSetting, decryptJson } from '../../src/server/db/secrets.js';
+import { settings } from '../../src/server/db/schema.js';
 
 const T0 = 1_700_000_000_000; const email = { type: 'smtp' as const, url: 'smtp://u:p@h:587', from: 'S <s@x>' };
 function fresh() { const db = openDb(':memory:'); migrate(db); return db; }
@@ -11,11 +13,11 @@ describe('bootstrap', () => {
   it('walks unconfigured → awaiting_verification → complete', () => {
     const db = fresh(); expect(setupState(db)).toBe('unconfigured');
     const token = createSetupToken(db, T0);
-    const r = completeSetup(db, { token, ownerEmail: 'Owner@X.com', studioName: 'S', email, baseUrl: 'https://g', now: T0 + 1000 });
+    const r = completeSetup(db, { token, ownerEmail: 'Owner@X.com', studioName: 'S', email, baseUrl: 'https://g', secret: 's'.repeat(32), now: T0 + 1000 });
     expect(r.ok).toBe(true);
     expect(setupState(db)).toBe('awaiting_verification');
     expect(db.select().from(users).get()).toMatchObject({ email: 'owner@x.com', role: 'owner' });
-    expect(getSetting(db, 'email')).toEqual(email);
+    expect(getSecretSetting(db, 'email', 's'.repeat(32))).toEqual(email);
     expect(getSetting(db, 'setup.token')).toBeNull();
     const job = db.select().from(jobs).get()!; expect(job.kind).toBe('send_email');
     expect((job.payload as { vars: { url: string } }).vars.url).toMatch(/^https:\/\/g\/auth\//);
@@ -23,16 +25,27 @@ describe('bootstrap', () => {
   });
   it('rejects a wrong, expired, or reused token', () => {
     const db = fresh(); const token = createSetupToken(db, T0);
-    expect(completeSetup(db, { token: 'nope', ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', now: T0 }).ok).toBe(false);
-    expect(completeSetup(db, { token, ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', now: T0 + 16 * 60_000 }).ok).toBe(false);
+    expect(completeSetup(db, { token: 'nope', ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', secret: 's'.repeat(32), now: T0 }).ok).toBe(false);
+    expect(completeSetup(db, { token, ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', secret: 's'.repeat(32), now: T0 + 16 * 60_000 }).ok).toBe(false);
     const t2 = createSetupToken(db, T0);
-    expect(completeSetup(db, { token, ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', now: T0 }).ok).toBe(false); // superseded
-    expect(completeSetup(db, { token: t2, ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', now: T0 }).ok).toBe(true);
-    expect(completeSetup(db, { token: t2, ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', now: T0 }).ok).toBe(false);
+    expect(completeSetup(db, { token, ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', secret: 's'.repeat(32), now: T0 }).ok).toBe(false); // superseded
+    expect(completeSetup(db, { token: t2, ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', secret: 's'.repeat(32), now: T0 }).ok).toBe(true);
+    expect(completeSetup(db, { token: t2, ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', secret: 's'.repeat(32), now: T0 }).ok).toBe(false);
   });
   it('refuses new setup tokens once complete', () => {
     const db = fresh(); const token = createSetupToken(db, T0);
-    completeSetup(db, { token, ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', now: T0 }); markSetupComplete(db);
+    completeSetup(db, { token, ownerEmail: 'o@x', studioName: 'S', email, baseUrl: 'https://g', secret: 's'.repeat(32), now: T0 }); markSetupComplete(db);
     expect(() => createSetupToken(db, T0)).toThrow(/complete/);
+  });
+
+  it('stores the email transport encrypted with the session secret, never in plain text', () => {
+    const db = fresh(); const token = createSetupToken(db, T0); const secret = 'k'.repeat(40);
+    completeSetup(db, { token, ownerEmail: 'o@x', studioName: 'S', email: { type: 'smtp', url: 'smtp://user:hunter2@mail.example:587', from: 'S <s@x>' }, baseUrl: 'https://g', secret, now: T0 });
+    const raw = JSON.stringify(db.select().from(settings).all());
+    expect(raw).not.toContain('hunter2'); expect(raw).not.toContain('mail.example');
+    expect(getSecretSetting<{ url: string }>(db, 'email', secret)?.url).toContain('hunter2');
+    expect(getSecretSetting(db, 'email', 'wrong'.repeat(8))).toBeNull();
+    expect(() => decryptJson('nope', secret)).toThrow();
+    expect(getSetting(db, 'email')).toMatchObject({ enc: expect.stringMatching(/^v1\./) });
   });
 });

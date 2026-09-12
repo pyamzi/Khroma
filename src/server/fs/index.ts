@@ -49,6 +49,7 @@ export async function rescan(db: Db, photosDir: string): Promise<RescanReport> {
       if (!pr.ok) { if (!pr.missing) { found.push({ kind: 'malformed', path: prel, detail: pr.error }); held.push({ rel: prel, kind: 'project' }); } continue; }
       if (!pr.data.id) { pr.data.id = newId(); await writeJsonAtomic(join(pabs, 'project.json'), pr.data); }
       seenProjects.push({ rel: prel, abs: pabs, data: pr.data, clientId: cr.data.id });
+      for (const sub of await subdirs(pabs)) for (const f of ['project.json', 'client.json']) if (await exists(join(pabs, sub, f))) found.push({ kind: 'wrong_depth', path: `${prel}/${sub}`, detail: `${f} nested inside a project` });
     }
   }
 
@@ -111,7 +112,7 @@ export async function rescan(db: Db, photosDir: string): Promise<RescanReport> {
       tx.update(projects).set({ folderPath: p.rel, available: true, date: merged.date, metadataJson: merged as Record<string, unknown> }).where(eq(projects.id, id)).run();
     }
     for (const row of tx.select().from(projects).all()) {
-      if (keptProjectIds.has(row.id) || heldPaths.has(row.folderPath) || row.transferPending) continue;
+      if (keptProjectIds.has(row.id) || heldPaths.has(row.folderPath) || [...heldPaths].some((h) => row.folderPath.startsWith(h + '/')) || row.transferPending) continue;
       if (row.available) { tx.update(projects).set({ available: false }).where(eq(projects.id, row.id)).run(); found.push({ kind: 'missing', path: row.folderPath, id: row.id }); }
     }
   });

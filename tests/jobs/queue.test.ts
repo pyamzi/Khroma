@@ -36,6 +36,11 @@ describe('jobs', () => {
     expect(row.state).toBe('failed'); expect(row.attempts).toBe(3);
     retryJob(db, row.id);
     expect(db.select().from(jobs).get()?.state).toBe('pending');
+    expect(() => retryJob(db, row.id)).toThrow(/not retryable/); // pending now
+    await runOnce(db, { boom: async () => {} }, Date.now() + 1); // retry schedules at the real clock
+    expect(db.select().from(jobs).get()?.state).toBe('done');
+    expect(() => retryJob(db, row.id)).toThrow(/done/);
+    expect(() => retryJob(db, 'nope')).toThrow(/unknown/);
   });
   it('parks a job in needs_review without retrying', async () => {
     const db = fresh(); enqueue(db, { kind: 'r', payload: {}, now: T0 });

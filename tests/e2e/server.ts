@@ -25,7 +25,7 @@ export async function startTestServer() {
   const mail = memoryTransport();
   const handlers = { ...makeEmailHandlers(() => mail, '127.0.0.1'), ...makePreviewHandlers(photosDir) };
   const token = createSetupToken(db);
-  completeSetup(db, { token, ownerEmail: 'owner@x.com', studioName: 'E2E Studio', email: { type: 'smtp', url: 'smtp://u:p@h:587', from: 'S <s@x>' }, baseUrl });
+  completeSetup(db, { token, ownerEmail: 'owner@x.com', studioName: 'E2E Studio', email: { type: 'smtp', url: 'smtp://u:p@h:587', from: 'S <s@x>' }, baseUrl, secret: config.sessionSecret });
   markSetupComplete(db);
   const c = defaultClientJson('Smith'); c.emails = ['sarah@x.com'];
   const p = defaultProjectJson('Wedding'); p.allowance = { included: 2, extraPrice: 1500, slots: 2 };

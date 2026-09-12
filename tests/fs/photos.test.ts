@@ -3,11 +3,13 @@ import { mkdir, rename, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { tmpDir } from '../helpers.js';
+import sharp from 'sharp';
 import { makeJpeg, makeTiffAs } from '../fixtures/make.js';
 import { openDb, migrate } from '../../src/server/db/client.js';
 import { photos, jobs, events } from '../../src/server/db/schema.js';
 import { rescan } from '../../src/server/fs/index.js';
 import { indexProjectMedia, makePreviewHandlers, cachePaths } from '../../src/server/fs/photos.js';
+import { ProjectJson } from '../../src/server/fs/schemas.js';
 import { runOnce } from '../../src/server/jobs/queue.js';
 import { writeJsonAtomic } from '../../src/server/fs/json.js';
 import { defaultClientJson, defaultProjectJson } from '../../src/server/fs/schemas.js';
@@ -64,11 +66,11 @@ describe('indexProjectMedia', () => {
     const r = await indexProjectMedia(db, root, pid);
     expect(r.drafts).toBe(2);
     const rows = db.select().from(photos).all();
-    expect(rows.find((p) => p.relPath === 'finals/new.jpg')?.draftRelPath).toBe('finals/.draft/new.jpg');
+    expect(rows.find((p) => p.relPath === 'finals/new.jpg')).toMatchObject({ draftRelPath: 'finals/.draft/new.jpg', live: false });
     expect((await stat(join(dir, 'finals/.draft/new.jpg'))).isFile()).toBe(true);
     await expect(stat(join(dir, 'finals/new.jpg'))).rejects.toThrow();
     expect(rows.find((p) => p.relPath === 'finals/staged.jpg')?.draftRelPath).toBe('finals/.draft/staged.jpg');
-    expect(rows.find((p) => p.relPath === 'finals/live.jpg')?.draftRelPath).toBeNull();
+    expect(rows.find((p) => p.relPath === 'finals/live.jpg')).toMatchObject({ draftRelPath: null, live: true });
   });
   it('a draft staged for an existing live file never touches the live file', async () => {
     const root = await tmpDir(); const { db, pid, dir } = await project(root);
@@ -79,8 +81,23 @@ describe('indexProjectMedia', () => {
     const r = await indexProjectMedia(db, root, pid);
     expect(r).toMatchObject({ added: 0, updated: 1, drafts: 1 });
     const row = db.select().from(photos).all()[0]!;
-    expect(row.relPath).toBe('finals/live.jpg'); expect(row.draftRelPath).toBe('finals/.draft/live.jpg');
+    expect(row.relPath).toBe('finals/live.jpg'); expect(row.draftRelPath).toBe('finals/.draft/live.jpg'); expect(row.live).toBe(true); // still published
     expect((await stat(join(dir, 'finals/live.jpg'))).size).toBe(before);
+  });
+  it('a draft never touches the live preview cache', async () => {
+    const root = await tmpDir(); const { db, pid, dir, drain } = await project(root);
+    await makeJpeg(join(dir, 'finals/live.jpg'), 64, 48);
+    await indexProjectMedia(db, root, pid); await drain();
+    const row = db.select().from(photos).all()[0]!;
+    const live = cachePaths(root, { folderPath: 'Clients/Smith/Wedding' }, row.id, 'live'); const draft = cachePaths(root, { folderPath: 'Clients/Smith/Wedding' }, row.id, 'draft');
+    await mkdir(join(dir, 'finals/.draft'), { recursive: true }); await makeJpeg(join(dir, 'finals/.draft/live.jpg'), 400, 300);
+    await indexProjectMedia(db, root, pid); await drain();
+    expect((await sharp(live.thumb).metadata()).width).toBe(64);      // still the published image
+    expect((await sharp(draft.thumb).metadata()).width).toBe(400);    // the draft has its own rendition
+  });
+  it('rejects folder settings that escape the project', () => {
+    for (const bad of ['../etc', 'a/b', '.hidden', '..', 'project.json']) expect(ProjectJson.safeParse({ schemaVersion: 1, title: 'x', folders: { culling: bad, finals: 'finals' } }).success).toBe(false);
+    expect(ProjectJson.safeParse({ schemaVersion: 1, title: 'x', folders: { culling: 'RAW files', finals: 'Finals' } }).success).toBe(true);
   });
   it('an external overwrite of a live final is logged, not reverted', async () => {
     const root = await tmpDir(); const { db, pid, dir } = await project(root);
