@@ -77,6 +77,9 @@ export function requestExtras(db: Db, o: { projectId: string; count: number; byE
   db.transaction((tx) => {
     const d = tx as unknown as Db; const r = row(d, o.projectId); const meta = ProjectJson.parse(r.metadataJson);
     const studio = getSetting<string>(d, 'studioName') ?? 'OpenGallery';
+    const dup = d.select({ payload: events.payload }).from(events).where(and(eq(events.projectId, o.projectId), eq(events.type, 'extras_requested'))).all()
+      .some((e) => { const p = e.payload as { count?: number; round?: number }; return p.count === o.count && p.round === r.currentRound; });
+    if (dup) return; // same request already recorded for this round; the email job is keyed the same way
     d.insert(events).values({ projectId: o.projectId, actor: o.byEmail, type: 'extras_requested', payload: { count: o.count, round: r.currentRound } }).run();
     for (const to of adminRecipients(d, o.projectId))
       sendEmail(d, { to, template: 'extras_requested', vars: { studio, project: meta.title, count: String(o.count), by: o.byEmail, url: `${o.baseUrl}/p/${o.projectId}` }, key: `extras_requested:${o.projectId}:${r.currentRound}:${o.count}:${to}` });

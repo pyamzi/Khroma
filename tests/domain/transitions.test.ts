@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpDir } from '../helpers.js';
 import { makeTiffAs } from '../fixtures/make.js';
@@ -91,9 +91,23 @@ describe('transitions', () => {
     requestExtras(db, { projectId: pid, count: 3, byEmail: 's@x', baseUrl: 'https://g' });
     requestExtras(db, { projectId: pid, count: 3, byEmail: 's@x', baseUrl: 'https://g' });
     const mails = db.select().from(jobs).all().filter((j) => j.kind === 'send_email');
-    expect(mails).toHaveLength(1); expect(mails[0]!.payload).toMatchObject({ to: 'sam@x', template: 'extras_requested', vars: { count: '3' } });
+    expect(mails).toHaveLength(1);
+    expect(db.select().from(events).all().filter((e) => e.type === 'extras_requested')).toHaveLength(1); // event log is idempotent too
+    requestExtras(db, { projectId: pid, count: 4, byEmail: 's@x', baseUrl: 'https://g' });
+    expect(db.select().from(events).all().filter((e) => e.type === 'extras_requested')).toHaveLength(2); // a different count is a new request expect(mails[0]!.payload).toMatchObject({ to: 'sam@x', template: 'extras_requested', vars: { count: '3' } });
     expect(adminRecipients(db, pid)).toEqual(['sam@x']);
     db.delete(users).where(eq(users.email, 'sam@x')).run();
     expect(adminRecipients(db, pid)).toEqual(['owner@x']);
+  });
+
+  it('finish never freezes a photo that vanished before submission', async () => {
+    const { db, root, pid, dir } = await seed(5);
+    for (const n of ['a', 'b']) await makeTiffAs(join(dir, `raw/${n}.dng`));
+    await indexProjectMedia(db, root, pid);
+    const [a, b] = cullingIds(db) as [string, string];
+    pick(db, pid, a); pick(db, pid, b);
+    await rm(join(dir, 'raw/a.dng')); await indexProjectMedia(db, root, pid);
+    const r = await finishRound(db, root, { projectId: pid, actor: 's@x', expectedVersion: prod(db, pid).selectionVersion, baseUrl: 'https://g' });
+    expect(r.photoIds).toEqual([b]);
   });
 });

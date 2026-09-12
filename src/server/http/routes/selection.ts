@@ -25,13 +25,13 @@ export const selectionRoutes = (config: Config, photosDir: string) => new Hono<A
     const db = c.get('db'); const p = c.get('project');
     return c.json({ summary: summary(db, p.id), picks: currentPicks(db, p.id) });
   })
-  .post('/api/projects/:id/picks', loadProject(), async (c) => {
+  .post('/api/projects/:id/picks', requireKind('client'), loadProject(), async (c) => {
     const b = await parse(c, Pick); if (!b) return c.json({ error: 'invalid body' }, 400);
     const db = c.get('db'); const p = c.get('project'); const s = c.get('session')!;
     try { const sum = setPick(db, { projectId: p.id, photoId: b.photoId, picked: b.picked, byEmail: s.subject, expectedVersion: b.selectionVersion }); return c.json({ summary: sum, picks: currentPicks(db, p.id) }); }
     catch (e) { return fail(c, e); }
   })
-  .post('/api/projects/:id/finish', loadProject(), async (c) => {
+  .post('/api/projects/:id/finish', requireKind('client'), loadProject(), async (c) => {
     const b = await parse(c, Finish); if (!b) return c.json({ error: 'invalid body' }, 400);
     try { const r = await finishRound(c.get('db'), photosDir, { projectId: c.get('project').id, actor: c.get('session')!.subject, expectedVersion: b.selectionVersion, baseUrl: config.baseUrl }); return c.json({ round: r.round, count: r.photoIds.length }); }
     catch (e) { return fail(c, e); }

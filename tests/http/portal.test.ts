@@ -14,7 +14,8 @@ import { rescan } from '../../src/server/fs/index.js';
 import { indexProjectMedia, makePreviewHandlers } from '../../src/server/fs/photos.js';
 import { writeJsonAtomic } from '../../src/server/fs/json.js';
 import { defaultClientJson, defaultProjectJson } from '../../src/server/fs/schemas.js';
-import { events } from '../../src/server/db/schema.js';
+import { events, sessions } from '../../src/server/db/schema.js';
+import { hashToken } from '../../src/server/auth/magic.js';
 
 const SMTP = { type: 'smtp', url: 'smtp://u:p@h:587', from: 'S <s@x>' };
 const linkFrom = (text: string) => text.match(/http:\/\/localhost:3000\/auth\/[A-Za-z0-9_-]+/)![0];
@@ -107,7 +108,7 @@ describe('portal api', () => {
     const photos = await json<PhotoItem[]>(await api(`/api/projects/${pid}/photos`, { cookie: sarah }));
     expect(photos.find((p) => p.id === a)?.comments).toEqual({ open: 0, total: 1 });
     expect((await api(`/api/photos/${a}/comments`)).status).toBe(404);
-    expect((await post(`/api/photos/${a}/comments`, { text: 'x' }, '')).status).toBe(404);
+    expect((await post(`/api/photos/${a}/comments`, { text: 'x' }, '')).status).toBe(401); // no session: role check first
   });
   it('admin allowance and cancel-round; invalid allowance refused', async () => {
     const { api, post, json, owner, sarah, pid } = await boot();
@@ -119,5 +120,18 @@ describe('portal api', () => {
     expect((await post(`/api/projects/${pid}/cancel-round`, {}, owner)).status).toBe(200);
     expect((await json<{ picks: unknown[] }>(await api(`/api/projects/${pid}/selection`, { cookie: sarah }))).picks).toEqual([]);
     r = await post(`/api/projects/${pid}/allowance`, { included: -1 }, owner); expect(r.status).toBe(400);
+  });
+
+  it('a project-scoped guest session can view but not pick, finish, or comment', async () => {
+    const { db, api, post, json, pid } = await boot();
+    db.insert(sessions).values({ id: 'g1', kind: 'guest', subject: 'Guest 1', projectId: pid, tokenHash: hashToken('guest-token'), expiresAt: '2999-01-01T00:00:00Z' }).run();
+    const guest = 'og_session=guest-token';
+    const photos = await json<PhotoItem[]>(await api(`/api/projects/${pid}/photos`, { cookie: guest }));
+    expect(photos).toHaveLength(3);
+    const sel = await json<{ summary: Summary }>(await api(`/api/projects/${pid}/selection`, { cookie: guest }));
+    expect((await post(`/api/projects/${pid}/picks`, { photoId: photos[0]!.id, picked: true, selectionVersion: sel.summary.selectionVersion }, guest)).status).toBe(401);
+    expect((await post(`/api/projects/${pid}/finish`, { selectionVersion: sel.summary.selectionVersion }, guest)).status).toBe(401);
+    expect((await post(`/api/photos/${photos[0]!.id}/comments`, { text: 'hi' }, guest)).status).toBe(401);
+    expect((await api(`/api/photos/${photos[0]!.id}/comments`, { cookie: guest })).status).toBe(200);
   });
 });
