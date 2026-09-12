@@ -38,6 +38,7 @@ export const ProjectJson = z.object({
   offers: z.record(z.boolean()).default({}),
   portfolioRelease: z.boolean().default(false),
   showOffers: z.boolean().default(true),
+  sharedFiles: z.array(z.string()).default([]),
   integrations: z.object({ docusealSubmissionId: z.string().nullable() }).default({ docusealSubmissionId: null }),
 });
 export type ProjectJson = z.infer<typeof ProjectJson>;
