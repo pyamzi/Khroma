@@ -20,7 +20,7 @@ export function dashboard(db: Db, now = Date.now()) {
     const rows = db.select().from(photos).where(and(eq(photos.projectId, p.id), eq(photos.missing, false))).all();
     if (p.productionState === 'editing') {
       const fin = ev.filter((e) => e.projectId === p.id && e.type === 'finished_culling').sort((a, b) => a.at.localeCompare(b.at)).at(-1);
-      if (fin && !rows.some((r) => r.stage === 'final' && !r.draftRelPath)) waitingOnYou.push({ ...base, reason: 'culling_finished', count: ((fin.payload as { photoIds?: string[] }).photoIds ?? []).length, since: fin.at });
+      if (fin) waitingOnYou.push({ ...base, reason: 'culling_finished', count: ((fin.payload as { photoIds?: string[] }).photoIds ?? []).length, since: fin.at });
     }
     const open = db.select({ id: comments.id, at: comments.createdAt }).from(comments).innerJoin(photos, eq(photos.id, comments.photoId)).where(and(eq(photos.projectId, p.id), isNull(comments.resolvedAt))).all();
     if (open.length) waitingOnYou.push({ ...base, reason: 'unresolved_comments', count: open.length, since: open.map((c) => c.at).sort()[0]! });

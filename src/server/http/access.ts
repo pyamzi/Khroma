@@ -58,3 +58,11 @@ export function loadPhoto(): MiddlewareHandler<WithPhoto> {
     c.set('project', p); c.set('photo', ph); await next();
   };
 }
+
+export function ownerOnly(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const s = c.get('session'); const u = s && c.get('db').select().from(users).where(eq(users.email, s.subject)).get();
+    if (!u || u.role !== 'owner') return c.json({ error: 'forbidden' }, 403);
+    await next();
+  };
+}
