@@ -24,13 +24,22 @@ export function canAccessProject(db: Db, s: SessionRow | null, p: ProjectRow): A
     return c?.emails.some((e) => e.toLowerCase() === s.subject.toLowerCase()) ? 'ok' : 'forbidden';
   }
   if (s.kind === 'guest') return s.projectId === p.id ? 'ok' : 'forbidden';
-  return 'forbidden'; // plugin / mcp tokens: milestones 4 and 10
+  if (s.kind === 'plugin') return !s.projectId || s.projectId === p.id ? 'ok' : 'forbidden';
+  return 'forbidden'; // mcp tokens: milestone 10
 }
 
 export function listProjectsFor(db: Db, s: SessionRow | null): ProjectRow[] {
   return db.select().from(projects).all().filter((p) => canAccessProject(db, s, p) === 'ok');
 }
 
+/** Mutating plugin routes need a read+write token. */
+export function requireScope(scope: 'write'): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const s = c.get('session');
+    if (!s || (scope === 'write' && !s.scope.includes('write'))) return c.json({ error: 'read_only' }, 403);
+    await next();
+  };
+}
 export function requireKind(...kinds: SessionRow['kind'][]): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const s = c.get('session');
