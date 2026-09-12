@@ -17,7 +17,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json",
     "db:generate": "drizzle-kit generate",
-    "test:e2e": "npm run build && playwright test"
+    "test:e2e": "npm run build && playwright test",
+    "demo": "npm run build && tsx tests/e2e/demo.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",

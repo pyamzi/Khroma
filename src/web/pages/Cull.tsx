@@ -24,23 +24,34 @@ export function Cull({ id, me }: { id: string; me: Me }) {
 
   const load = useCallback(async () => {
     const [p, ph, s] = await Promise.all([api<ProjectDetail>(`/api/projects/${id}`), api<PhotoItem[]>(`/api/projects/${id}/photos?stage=culling`), api<SelResp>(`/api/projects/${id}/selection`)]);
-    setProject(p); setPhotos(ph); setSel(s.summary);
+    setProject(p); setPhotos(ph); setSel(s.summary); selRef.current = s.summary;
   }, [id]);
   useEffect(() => { void load().catch(() => navigate('/')); }, [load]);
   useEffect(() => { const on = () => { if (document.visibilityState === 'visible') void load(); }; document.addEventListener('visibilitychange', on); return () => document.removeEventListener('visibilitychange', on); }, [load]);
 
-  const togglePick = async (photoId: string) => {
-    if (!sel || busy) return; const target = photos.find((p) => p.id === photoId); if (!target || target.pick?.locked) return;
+  // Picks are serialized so rapid taps never race each other; each request carries the latest version.
+  const selRef = useRef<SelectionSummary | null>(null); selRef.current = sel;
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const togglePick = (photoId: string) => {
+    const target = photos.find((p) => p.id === photoId); if (!target || target.pick?.locked || !sel) return;
     const picked = !target.pick;
     setPhotos((ps) => ps.map((p) => (p.id === photoId ? { ...p, pick: picked ? { state: 'pending', byEmail: me.subject, locked: false } : null } : p)));
-    try {
-      const r = await api<SelResp>(`/api/projects/${id}/picks`, { method: 'POST', body: JSON.stringify({ photoId, picked, selectionVersion: sel.selectionVersion }) });
-      setSel(r.summary); setPhotos((ps) => applyPicks(ps, r.picks));
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 409) { await load(); return; }
-      if (e instanceof ApiError && e.status === 422) { setError(e.message === 'not_culling' ? 'Picking is closed for this project.' : 'That photo can’t be picked.'); setSheet('error'); await load(); return; }
-      throw e;
-    }
+    const send = async (retry: boolean): Promise<void> => {
+      const version = selRef.current?.selectionVersion ?? 0;
+      try {
+        const r = await api<SelResp>(`/api/projects/${id}/picks`, { method: 'POST', body: JSON.stringify({ photoId, picked, selectionVersion: version }) });
+        selRef.current = r.summary; setSel(r.summary); setPhotos((ps) => applyPicks(ps, r.picks));
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409 && retry) { await load(); return send(false); }
+        if (e instanceof ApiError && (e.status === 409 || e.status === 422)) {
+          if (e.status === 422) { setError(e.message === 'not_culling' ? 'Picking is closed for this project.' : 'That photo can’t be picked.'); setSheet('error'); }
+          await load(); return;
+        }
+        throw e;
+      }
+    };
+    queue.current = queue.current.then(() => send(true)).catch(() => undefined);
+    return queue.current;
   };
 
   const finish = async () => {
