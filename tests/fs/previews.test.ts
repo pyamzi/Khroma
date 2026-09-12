@@ -13,6 +13,12 @@ describe('previews', () => {
     expect(r).toEqual({ width: 16, height: 12 });
     expect((await sharp(join(d, 'x.jpg')).metadata()).format).toBe('jpeg');
   });
+  it('ignores an embedded candidate that does not decode (jpeg-compressed tiff strips) and renders the source', async () => {
+    const d = await tmpDir();
+    await sharp({ create: { width: 600, height: 400, channels: 3, background: '#3c3' } }).tiff().toFile(join(d, 'big.dng'));
+    const r = await extractPreview(join(d, 'big.dng'), join(d, 'big.jpg'), 300);
+    expect(r).toEqual({ width: 300, height: 200 });
+  });
   it('throws PreviewError for a missing or undecodable file', async () => {
     const d = await tmpDir();
     await expect(extractPreview(join(d, 'missing.cr2'), join(d, 'o.jpg'))).rejects.toBeInstanceOf(PreviewError);

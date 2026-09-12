@@ -17,12 +17,16 @@ async function embedded(src: string): Promise<Buffer | null> {
   return null;
 }
 
+/** Embedded camera JPEG first, then the source itself. An embedded candidate that will not decode is not an error; the source is tried next. */
 export async function extractPreview(src: string, out: string, maxEdge = 2048): Promise<{ width: number; height: number }> {
-  const input: Buffer | string = (await embedded(src)) ?? src;
-  try {
+  const render = async (input: Buffer | string) => {
     const info = await sharp(input, { failOn: 'none' }).rotate().resize({ width: maxEdge, height: maxEdge, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toFile(out);
     return { width: info.width, height: info.height };
-  } catch (e) { throw new PreviewError(`no usable preview for ${src}: ${(e as Error).message}`); }
+  };
+  const emb = await embedded(src);
+  if (emb) { try { return await render(emb); } catch { /* abbreviated or damaged stream: fall through to the source */ } }
+  try { return await render(src); }
+  catch (e) { throw new PreviewError(`no usable preview for ${src}: ${(e as Error).message}`); }
 }
 
 export async function makeThumb(src: string, out: string, maxEdge: number): Promise<void> {
