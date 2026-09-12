@@ -63,7 +63,7 @@ describe('selection', () => {
     expect(s).toMatchObject({ entitlement: 2, confirmed: 2, pending: 0, deficit: 0 });
     s = await grantSlots(db, root, { projectId: P, delta: -1, reason: 'refund', actor: 'owner@x', reference: 're_1' });
     expect(s).toMatchObject({ entitlement: 1, confirmed: 1, pending: 1, deficit: 0 });
-    await expect(grantSlots(db, root, { projectId: P, delta: -5, reason: 'refund', actor: 'owner@x', reference: 're_1' })).rejects.toThrow(/UNIQUE/);
+    await expect(grantSlots(db, root, { projectId: P, delta: -1, reason: 'refund', actor: 'owner@x', reference: 're_1' })).rejects.toThrow(/UNIQUE/); // same reference twice
     expect(summary(db, P).entitlement).toBe(1);
   });
   it('submitted-round picks are locked and count first', async () => {
@@ -92,5 +92,31 @@ describe('selection', () => {
     db.update(projects).set({ productionState: 'editing' }).where(eq(projects.id, P)).run();
     expect(() => pick(db, 'a')).toThrow(/not_culling/);
     expect(db.select().from(events).all().filter((e) => e.type === 'picked')).toHaveLength(0);
+  });
+
+  it('refuses a grant that would take entitlement below zero', async () => {
+    const { db, root } = await seed(0);
+    await expect(grantSlots(db, root, { projectId: P, delta: -1, reason: 'release', actor: 'owner@x' })).rejects.toMatchObject({ code: 'negative_entitlement' });
+    expect((await grantSlots(db, root, { projectId: P, delta: 2, reason: 'gift', actor: 'owner@x' })).entitlement).toBe(2);
+    await expect(grantSlots(db, root, { projectId: P, delta: -3, reason: 'refund', actor: 'owner@x' })).rejects.toMatchObject({ code: 'negative_entitlement' });
+    expect(summary(db, P).entitlement).toBe(2); // nothing corrupted
+  });
+  it('a no-op unpick does not bump the version', async () => {
+    const { db } = await seed();
+    const before = v(db);
+    pick(db, 'a', 's@x', false);
+    expect(v(db)).toBe(before);
+    pick(db, 'a'); expect(v(db)).toBe(before + 1);
+    pick(db, 'a'); expect(v(db)).toBe(before + 1); // duplicate pick is a no-op too
+  });
+  it('picks on photos that vanished are dropped from the open round and may be unpicked', async () => {
+    const { db } = await seed(5);
+    pick(db, 'a'); pick(db, 'b');
+    db.update(photos).set({ missing: true }).where(eq(photos.id, 'a')).run();
+    expect(() => pick(db, 'a')).toThrow(/unknown_photo/);          // cannot pick a missing photo
+    pick(db, 'c');                                                 // any change recomputes
+    expect(currentPicks(db, P).map((p) => p.photoId).sort()).toEqual(['b', 'c']);
+    expect(db.select().from(events).all().some((e) => e.type === 'pick_dropped_missing')).toBe(true);
+    pick(db, 'a', 's@x', false);                                   // unpicking a missing photo is harmless
   });
 });

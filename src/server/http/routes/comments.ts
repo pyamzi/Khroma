@@ -10,7 +10,7 @@ const Input = z.object({ text: z.string(), x: z.number().optional(), y: z.number
 
 export const commentRoutes = () => new Hono<AppEnv>()
   .get('/api/photos/:photoId/comments', loadPhoto(), (c) => c.json(listComments(c.get('db'), c.get('photo').id)))
-  .post('/api/photos/:photoId/comments', loadPhoto(), async (c) => {
+  .post('/api/photos/:photoId/comments', requireKind('client', 'admin'), loadPhoto(), async (c) => {
     const b = Input.safeParse(await c.req.json().catch(() => null)); if (!b.success) return c.json({ error: 'invalid body' }, 400);
     const db = c.get('db'); const s = c.get('session')!;
     try { return c.json(addComment(db, { photoId: c.get('photo').id, author: s.subject, isAdmin: isAdmin(db, s), input: b.data }), 201); }

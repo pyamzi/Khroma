@@ -56,7 +56,10 @@ export function Cull({ id, me }: { id: string; me: Me }) {
 
   const finish = async () => {
     if (!sel) return; setBusy(true);
-    try { await api(`/api/projects/${id}/finish`, { method: 'POST', body: JSON.stringify({ selectionVersion: sel.selectionVersion }) }); setSheet(null); navigate(`/p/${id}`); }
+    try {
+      await queue.current; // let queued heart taps land first, then use the version they produced
+      await api(`/api/projects/${id}/finish`, { method: 'POST', body: JSON.stringify({ selectionVersion: selRef.current?.selectionVersion ?? sel.selectionVersion }) }); setSheet(null); navigate(`/p/${id}`);
+    }
     catch (e) {
       if (e instanceof ApiError && e.status === 409) { await load(); setSheet(null); return; }
       const msg: Record<string, string> = { pending_picks: 'Some picks are over your allowance. Remove them or ask for extras first.', no_picks: 'Pick at least one photo first.', unpaid_extras: 'Finish your extras purchase first.', needs_review: 'The studio is reviewing your account. Try again later.', deficit: 'The studio is reviewing your allowance. Try again later.' };
@@ -108,7 +111,7 @@ export function Cull({ id, me }: { id: string; me: Me }) {
             </div>))}
         </div>)}
       <footer className="fixed inset-x-0 bottom-0 z-10 border-t border-neutral-200 bg-white/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur dark:border-neutral-800 dark:bg-black/90">
-        {closed ? <p className="text-center text-neutral-500">{picked} picks sent · picking is closed</p> : over ? (
+        {closed ? <p className="text-center text-neutral-500">{sel.submitted} pick{sel.submitted === 1 ? '' : 's'} sent · picking is closed</p> : over ? (
           <div className="flex items-center justify-between"><span>{sel.pending} extra photo{sel.pending > 1 ? 's' : ''} · {money(sel.pending * sel.extraPrice)}</span>
             <button onClick={() => setSheet('extras')} className="min-h-11 rounded-xl bg-black px-4 text-white dark:bg-white dark:text-black">Request</button></div>
         ) : (
