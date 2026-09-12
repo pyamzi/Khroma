@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3f7cc2a4-deec-47f6-89dd-2051b1a938e0",
-  "prevId": "f956aa3f-c7a3-4ed5-9433-6ef34d9aad95",
+  "id": "1b2d9a56-d3e9-4696-a256-e99e84f0e338",
+  "prevId": "3f7cc2a4-deec-47f6-89dd-2051b1a938e0",
   "tables": {
     "clients": {
       "name": "clients",
@@ -860,6 +860,14 @@
         },
         "current_round": {
           "name": "current_round",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "selection_version": {
+          "name": "selection_version",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

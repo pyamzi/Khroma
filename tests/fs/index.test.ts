@@ -124,4 +124,21 @@ describe('rescan', () => {
     expect(row.available).toBe(true);
     expect((row.metadataJson as { title: string }).title).toBe('Wedding');
   });
+
+  it('a malformed client.json keeps that client\'s projects available', async () => {
+    const root = await tmpDir(); const db = fresh(); const { p } = await seed(root);
+    await rescan(db, root);
+    await writeFile(join(root, 'Clients/Smith/client.json'), '{ broken');
+    const r = await rescan(db, root);
+    expect(r.issues.map((i) => i.kind)).toEqual(['malformed']);
+    expect(db.select().from(projects).where(eq(projects.id, p.id!)).get()?.available).toBe(true);
+  });
+  it('flags identity files nested inside a project as wrong depth', async () => {
+    const root = await tmpDir(); const db = fresh(); await seed(root);
+    await mkdir(join(root, 'Clients/Smith/Wedding/extra'), { recursive: true });
+    await writeJsonAtomic(join(root, 'Clients/Smith/Wedding/extra/project.json'), defaultProjectJson('Nested'));
+    const r = await rescan(db, root);
+    expect(r.issues).toEqual([expect.objectContaining({ kind: 'wrong_depth', path: 'Clients/Smith/Wedding/extra' })]);
+    expect(db.select().from(projects).all()).toHaveLength(1);
+  });
 });

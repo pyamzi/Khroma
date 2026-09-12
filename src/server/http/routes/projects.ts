@@ -43,7 +43,7 @@ export const projectRoutes = (photosDir: string) => new Hono<AppEnv>()
     const pickBy = new Map(db.select().from(picks).where(eq(picks.projectId, p.id)).all().map((k) => [k.photoId, k]));
     const cc = commentCounts(db, p.id);
     const rows = db.select().from(photos).where(and(eq(photos.projectId, p.id), eq(photos.missing, false), eq(photos.stage, stage))).all()
-      .filter((r) => admin || !r.draftRelPath)
+      .filter((r) => admin || r.live)
       .sort((a, b) => a.sortOrder - b.sortOrder || (a.capturedAt ?? '').localeCompare(b.capturedAt ?? '') || a.relPath.localeCompare(b.relPath));
     return c.json(rows.map((r) => {
       const k = pickBy.get(r.id);

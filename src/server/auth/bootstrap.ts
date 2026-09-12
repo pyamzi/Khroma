@@ -1,6 +1,7 @@
 import type { Db } from '../db/client.js';
 import { users } from '../db/schema.js';
 import { getSetting, setSetting, deleteSetting } from '../db/settings.js';
+import { setSecretSetting } from '../db/secrets.js';
 import { createMagicLink, hashToken, randomToken } from './magic.js';
 import { sendEmail } from '../email/send.js';
 import type { EmailConfig } from '../email/transport.js';
@@ -24,7 +25,7 @@ export function createSetupToken(db: Db, now = Date.now()): string {
   return token;
 }
 
-export function completeSetup(db: Db, o: { token: string; ownerEmail: string; studioName: string; email: EmailConfig; baseUrl: string; now?: number }): { ok: true } | { ok: false; error: string } {
+export function completeSetup(db: Db, o: { token: string; ownerEmail: string; studioName: string; email: EmailConfig; baseUrl: string; secret: string; now?: number }): { ok: true } | { ok: false; error: string } {
   const now = o.now ?? Date.now();
   const t = getSetting<SetupToken>(db, 'setup.token');
   if (!t || t.hash !== hashToken(o.token)) return { ok: false, error: 'invalid setup token' };
@@ -35,7 +36,7 @@ export function completeSetup(db: Db, o: { token: string; ownerEmail: string; st
     deleteSetting(d, 'setup.token');
     const id = newId();
     tx.insert(users).values({ id, email, role: 'owner' }).onConflictDoNothing().run();
-    setSetting(d, 'studioName', o.studioName); setSetting(d, 'email', o.email);
+    setSetting(d, 'studioName', o.studioName); setSecretSetting(d, 'email', o.email, o.secret);
     const link = createMagicLink(d, { kind: 'admin', email, now });
     sendEmail(d, { to: email, template: 'magic_link', vars: { studio: o.studioName, url: `${o.baseUrl}/auth/${link.token}` }, key: `setup:${id}:${now}` });
   });

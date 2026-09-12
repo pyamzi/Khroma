@@ -16,9 +16,10 @@ export const PREVIEW_EDGE = 2048;
 export const THUMB_EDGE = 400;
 export type IndexReport = { added: number; updated: number; missing: number; drafts: number; skipped: string[] };
 
-export function cachePaths(photosDir: string, row: { folderPath: string }, photoId: string) {
-  const base = join(photosDir, row.folderPath, '.cache');
-  return { preview: join(base, 'previews', `${photoId}.jpg`), thumb: join(base, 'thumbs', `${photoId}.jpg`) };
+/** Live and draft renditions never share a cache file; client routes serve only the live one. */
+export function cachePaths(photosDir: string, row: { folderPath: string }, photoId: string, variant: 'live' | 'draft' = 'live') {
+  const base = join(photosDir, row.folderPath, '.cache'); const name = variant === 'draft' ? `${photoId}.draft.jpg` : `${photoId}.jpg`;
+  return { preview: join(base, 'previews', name), thumb: join(base, 'thumbs', name) };
 }
 
 type Entry = { abs: string; rel: string };
@@ -52,7 +53,7 @@ export async function indexProjectMedia(db: Db, photosDir: string, projectId: st
   const files = [...raw.map((f) => ({ ...f, stage: 'culling' as const })), ...fin.map((f) => ({ ...f, stage: 'final' as const }))];
 
   const existing = new Map(db.select().from(photos).where(eq(photos.projectId, projectId)).all().map((p) => [p.relPath, p]));
-  type Seen = { checksum: string; draftPath: string | null; kind: 'photo' | 'video'; section: string | null; stage: 'culling' | 'final' };
+  type Seen = { checksum: string; draftPath: string | null; liveExists: boolean; kind: 'photo' | 'video'; section: string | null; stage: 'culling' | 'final' };
   const seen = new Map<string, Seen>(); // keyed by live path; checksum is of the draft when one exists, else the live file
 
   for (const f of files) {
@@ -68,30 +69,33 @@ export async function indexProjectMedia(db: Db, photosDir: string, projectId: st
       abs = join(dir, draftPath);
       await mkdir(dirname(abs), { recursive: true }); await rename(f.abs, abs);
     }
-    if (seen.get(livePath)?.draftPath && !draftPath) continue; // the draft already represents this path
     const section = f.stage === 'final' ? (() => { const parts = livePath.split('/'); return parts.length > 2 ? parts[1]! : null; })() : null;
-    seen.set(livePath, { checksum: await quickHash(abs), draftPath, kind: s.kind, section, stage: f.stage });
+    const cur = seen.get(livePath) ?? { checksum: '', draftPath: null, liveExists: false, kind: s.kind, section, stage: f.stage };
+    if (draftPath) { cur.draftPath = draftPath; cur.checksum = await quickHash(abs); }
+    else { cur.liveExists = true; if (!cur.draftPath) cur.checksum = await quickHash(abs); }
+    seen.set(livePath, cur);
   }
 
   for (const [livePath, cur] of seen) {
     const prior = existing.get(livePath);
     if (!prior) {
       const id = newId();
-      db.insert(photos).values({ id, projectId, relPath: livePath, draftRelPath: cur.draftPath, stage: cur.stage, kind: cur.kind, checksum: cur.checksum, section: cur.section }).run();
+      db.insert(photos).values({ id, projectId, relPath: livePath, draftRelPath: cur.draftPath, live: cur.liveExists, stage: cur.stage, kind: cur.kind, checksum: cur.checksum, section: cur.section }).run();
       report.added++; if (cur.draftPath) report.drafts++;
       enqueue(db, { kind: 'preview', payload: { photoId: id }, idempotencyKey: `preview:${id}:${cur.checksum}` });
       continue;
     }
     const draftChanged = prior.draftRelPath !== cur.draftPath;
     const contentChanged = prior.checksum !== cur.checksum;
-    if (!draftChanged && !contentChanged && !prior.missing) continue;
+    const liveChanged = prior.live !== cur.liveExists;
+    if (!draftChanged && !contentChanged && !liveChanged && !prior.missing) continue;
     if (contentChanged && !cur.draftPath && !prior.draftRelPath && prior.stage === 'final' && !prior.missing) {
       // the live file itself was overwritten outside the app; there is no second copy to restore
       db.insert(events).values({ projectId, actor: 'system', type: 'replaced_externally', payload: { photoId: prior.id, relPath: livePath } }).run();
     }
-    db.update(photos).set({ checksum: cur.checksum, missing: false, draftRelPath: cur.draftPath, section: cur.section }).where(eq(photos.id, prior.id)).run();
+    db.update(photos).set({ checksum: cur.checksum, missing: false, draftRelPath: cur.draftPath, live: cur.liveExists, section: cur.section }).where(eq(photos.id, prior.id)).run();
     report.updated++; if (cur.draftPath && draftChanged) report.drafts++;
-    enqueue(db, { kind: 'preview', payload: { photoId: prior.id }, idempotencyKey: `preview:${prior.id}:${cur.checksum}` });
+    enqueue(db, { kind: 'preview', payload: { photoId: prior.id }, idempotencyKey: `preview:${prior.id}:${cur.checksum}:${cur.liveExists ? 'l' : 'd'}` });
   }
   for (const [rel, p] of existing) if (!seen.has(rel) && !p.missing) { db.update(photos).set({ missing: true }).where(eq(photos.id, p.id)).run(); report.missing++; }
   db.update(projects).set({ lastIndexedAt: new Date().toISOString() }).where(eq(projects.id, projectId)).run();
@@ -106,14 +110,18 @@ export function makePreviewHandlers(photosDir: string): Handlers {
       const p = db.select().from(photos).where(eq(photos.id, photoId)).get();
       if (!p || p.missing || p.kind === 'video') return; // video posters arrive in milestone 10
       const proj = db.select().from(projects).where(eq(projects.id, p.projectId)).get()!;
-      const src = join(photosDir, proj.folderPath, p.draftRelPath ?? p.relPath);
-      const { preview, thumb } = cachePaths(photosDir, proj, p.id);
-      await mkdir(dirname(preview), { recursive: true }); await mkdir(dirname(thumb), { recursive: true });
+      const render = async (rel: string, variant: 'live' | 'draft') => {
+        const src = join(photosDir, proj.folderPath, rel);
+        const { preview, thumb } = cachePaths(photosDir, proj, p.id, variant);
+        await mkdir(dirname(preview), { recursive: true }); await mkdir(dirname(thumb), { recursive: true });
+        if (p.stage === 'culling') { const dims = await extractPreview(src, preview, PREVIEW_EDGE); await makeThumb(preview, thumb, THUMB_EDGE); return dims; }
+        await makeThumb(src, thumb, THUMB_EDGE); const m = await sharp(src).metadata(); return { width: m.width ?? 0, height: m.height ?? 0 };
+      };
       try {
-        let dims: { width: number; height: number };
-        if (p.stage === 'culling') { dims = await extractPreview(src, preview, PREVIEW_EDGE); await makeThumb(preview, thumb, THUMB_EDGE); }
-        else { await makeThumb(src, thumb, THUMB_EDGE); const m = await sharp(src).metadata(); dims = { width: m.width ?? 0, height: m.height ?? 0 }; }
-        db.update(photos).set({ width: dims.width, height: dims.height }).where(eq(photos.id, p.id)).run();
+        let dims: { width: number; height: number } | null = null;
+        if (p.live) dims = await render(p.relPath, 'live');
+        if (p.draftRelPath) { const d = await render(p.draftRelPath, 'draft'); dims ??= d; }
+        if (dims) db.update(photos).set({ width: dims.width, height: dims.height }).where(eq(photos.id, p.id)).run();
       } catch (e) {
         if (!(e instanceof PreviewError)) throw e;
         db.insert(events).values({ projectId: p.projectId, actor: 'system', type: 'preview_failed', payload: { photoId: p.id, relPath: p.relPath, error: e.message } }).run();

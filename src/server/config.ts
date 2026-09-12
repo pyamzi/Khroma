@@ -9,11 +9,13 @@ const Env = z.object({
   SMTP_URL: z.string().url().optional(),
   LISTMONK_URL: z.string().url().optional(),
   LISTMONK_TOKEN: z.string().optional(),
+  LISTMONK_TEMPLATE_ID: z.coerce.number().int().optional(),
+  EMAIL_FROM: z.string().optional(),
 });
 
 export type Config = {
   dataDir: string; photosDir: string; baseUrl: string; sessionSecret: string; port: number;
-  smtpUrl?: string; listmonkUrl?: string; listmonkToken?: string; secureCookies: boolean;
+  smtpUrl?: string; listmonkUrl?: string; listmonkToken?: string; listmonkTemplateId?: number; emailFrom?: string; secureCookies: boolean;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -21,7 +23,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   return {
     dataDir: e.DATA_DIR, photosDir: e.PHOTOS_DIR, baseUrl: e.BASE_URL.replace(/\/$/, ''),
     sessionSecret: e.SESSION_SECRET, port: e.PORT, smtpUrl: e.SMTP_URL,
-    listmonkUrl: e.LISTMONK_URL, listmonkToken: e.LISTMONK_TOKEN,
+    listmonkUrl: e.LISTMONK_URL, listmonkToken: e.LISTMONK_TOKEN, listmonkTemplateId: e.LISTMONK_TEMPLATE_ID, emailFrom: e.EMAIL_FROM,
     secureCookies: e.BASE_URL.startsWith('https://'),
   };
 }

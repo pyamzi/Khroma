@@ -13,10 +13,14 @@ import type { Config } from '../../config.js';
 
 // ponytail: in-process rate limit; the NAS runs one app process. Move to sqlite if a second process ever appears.
 const hits = new Map<string, number[]>();
+const MAX_KEYS = 5000;
 export function limited(key: string, max: number, now = Date.now(), windowMs = 15 * 60_000): boolean {
+  if (hits.size >= MAX_KEYS) for (const [k, ts] of hits) if (!ts.some((t) => t > now - windowMs)) hits.delete(k); // sweep expired keys
+  if (hits.size >= MAX_KEYS && !hits.has(key)) return true; // still full of live keys: refuse new ones rather than grow
   const arr = (hits.get(key) ?? []).filter((t) => t > now - windowMs); arr.push(now); hits.set(key, arr);
   return arr.length > max;
 }
+export const _hits = hits;
 
 export const auth = (config: Config) => new Hono<AppEnv>()
   .post('/api/auth/request', async (c) => {

@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import type { Db } from '../db/client.js';
-import { getSetting } from '../db/settings.js';
+import { getSecretSetting } from '../db/secrets.js';
 import type { Config } from '../config.js';
 
 export type Mail = { to: string; subject: string; text: string; html: string; messageId: string };
@@ -35,11 +35,13 @@ export function memoryTransport(): Transport & { sent: Mail[] } {
   return { sent, describe: () => 'memory', async send(m) { sent.push(m); } };
 }
 
-/** Settings win over environment. Null means no transport is configured. */
+/** Settings (encrypted at rest) win over environment. Null means no transport is configured. */
 export function resolveTransport(db: Db, config: Config): Transport | null {
-  const s = getSetting<EmailConfig>(db, 'email');
+  const s = getSecretSetting<EmailConfig>(db, 'email', config.sessionSecret);
   if (s?.type === 'smtp') return smtpTransport(s.url, s.from);
   if (s?.type === 'listmonk') return listmonkTransport(s.url, s.token, s.from, s.templateId);
-  if (config.smtpUrl) return smtpTransport(config.smtpUrl, `OpenGallery <no-reply@${new URL(config.baseUrl).hostname}>`);
+  const from = config.emailFrom ?? `OpenGallery <no-reply@${new URL(config.baseUrl).hostname}>`;
+  if (config.smtpUrl) return smtpTransport(config.smtpUrl, from);
+  if (config.listmonkUrl && config.listmonkToken && config.listmonkTemplateId !== undefined) return listmonkTransport(config.listmonkUrl, config.listmonkToken, from, config.listmonkTemplateId);
   return null;
 }
