@@ -6,6 +6,7 @@ jobs:
     permissions: { contents: read, pull-requests: read }
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 } # gitleaks scans the PR's commit range
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: sudo apt-get update && sudo apt-get install -y libimage-exiftool-perl
