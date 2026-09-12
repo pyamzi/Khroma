@@ -13,6 +13,7 @@ export type ClientDetail = ClientRow & { phone?: string; notes?: string; project
 export type EventRow = { id: number; projectId: string | null; actor: string; type: string; payload: Record<string, unknown>; at: string };
 export type Insights = { views: number; uniqueVisitors: number; byDay: { day: string; views: number; picks: number; comments: number }[]; visitors: { actor: string; views: number; lastSeen: string }[] };
 export type ProjectFile = { rel: string; size: number; shared: boolean };
+export type PluginToken = { id: string; name: string; scope: 'read' | 'read+write'; projectId: string | null; createdBy: string; createdAt: string; expiresAt: string };
 
 export const PRODUCTION: Record<string, string> = { not_started: 'Waiting for photos', shot: 'Shot', culling: 'Culling', editing: 'Editing', delivered: 'Delivered' };
 export const REASON: Record<string, string> = { culling_finished: 'Picks are in', unresolved_comments: 'Comments to answer', drafts: 'Drafts to publish', preview_failed: 'Previews failed', review_jobs: 'Jobs need review', issues: 'File issues', culling_idle: 'Client has gone quiet' };

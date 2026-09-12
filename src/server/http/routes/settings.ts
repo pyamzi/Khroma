@@ -8,6 +8,7 @@ import { users } from '../../db/schema.js';
 import { getSetting } from '../../db/settings.js';
 import type { Config } from '../../config.js';
 import { StudioSettings, getStudio, setStudio, setEmailConfig, emailStatus, sendDeliveryTest, listUsers, inviteUser, updateUser, removeUser, listJobs, retryJobById } from '../../domain/settings.js';
+import { createPluginToken, listPluginTokens, revokePluginToken, TokenError } from '../../domain/tokens.js';
 
 const EmailBody = z.discriminatedUnion('type', [
   z.object({ type: z.literal('smtp'), url: z.string().url(), from: z.string().min(3) }),
@@ -44,6 +45,17 @@ export const settingsRoutes = (config: Config) => new Hono<AppEnv>()
   })
   .delete('/api/users/:id', requireKind('admin'), ownerOnly(), (c) => {
     try { removeUser(c.get('db'), { userId: c.req.param('id'), actor: c.get('session')!.subject }); return c.json({ ok: true }); } catch (e) { return fail(c, e); }
+  })
+  .get('/api/access/tokens', requireKind('admin'), (c) => c.json(listPluginTokens(c.get('db'))))
+  .post('/api/access/tokens', requireKind('admin'), async (c) => {
+    const b = z.object({ name: z.string().min(1).max(80), scope: z.enum(['read', 'read+write']).default('read+write'), projectId: z.string().nullable().optional() }).safeParse(await c.req.json().catch(() => null));
+    if (!b.success) return c.json({ error: 'invalid body' }, 400);
+    try { return c.json(createPluginToken(c.get('db'), { name: b.data.name, scope: b.data.scope, projectId: b.data.projectId ?? null, actor: c.get('session')!.subject }), 201); }
+    catch (e) { if (e instanceof TokenError) return c.json({ error: e.code }, e.code === 'not_found' ? 404 : 400); throw e; }
+  })
+  .delete('/api/access/tokens/:id', requireKind('admin'), (c) => {
+    try { revokePluginToken(c.get('db'), { id: c.req.param('id'), actor: c.get('session')!.subject }); return c.json({ ok: true }); }
+    catch (e) { if (e instanceof TokenError) return c.json({ error: e.code }, 404); throw e; }
   })
   .get('/api/jobs', requireKind('admin'), (c) => { const s = JobState.safeParse(c.req.query('state')); return c.json(listJobs(c.get('db'), { state: s.success ? s.data : undefined })); })
   .post('/api/jobs/:id/retry', requireKind('admin'), (c) => { try { return c.json(retryJobById(c.get('db'), c.req.param('id'))); } catch (e) { return fail(c, e); } });

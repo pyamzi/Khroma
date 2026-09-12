@@ -3,9 +3,9 @@ import { api, ApiError } from '../api';
 import type { Me } from '../App';
 import { Shell } from './Shell';
 import { Button, Card, Empty, Input, Select, Pill, Row, Toast } from './ui';
-import { ago, type Settings as S, type User, type Job, type Issue } from './api';
+import { ago, type Settings as S, type User, type Job, type Issue, type PluginToken } from './api';
 
-const LATER = [['Integrations', 'M7–M8'], ['Templates', 'M8'], ['Forms', 'M8'], ['Packages', 'M8'], ['Offers', 'M9'], ['Music', 'M10'], ['Access', 'M4']];
+const LATER = [['Integrations', 'M7–M8'], ['Templates', 'M8'], ['Forms', 'M8'], ['Packages', 'M8'], ['Offers', 'M9'], ['Music', 'M10'], ['MCP tokens', 'M10'], ['Calendar feed', 'M6']];
 
 export function Settings({ me }: { me: Me }) {
   const [s, setS] = useState<S | null>(null); const [users, setUsers] = useState<User[]>([]); const [jobs, setJobs] = useState<Job[]>([]); const [issues, setIssues] = useState<Issue[]>([]);
@@ -14,10 +14,11 @@ export function Settings({ me }: { me: Me }) {
   const [email, setEmail] = useState({ type: 'smtp', url: '', from: '', token: '', templateId: '' });
   const [invite, setInvite] = useState({ email: '', role: 'member' });
   const [jobState, setJobState] = useState('');
+  const [tokens, setTokens] = useState<PluginToken[]>([]); const [newToken, setNewToken] = useState({ name: '', scope: 'read+write' }); const [minted, setMinted] = useState<{ name: string; token: string } | null>(null);
   const owner = users.find((u) => u.email === me.subject)?.role === 'owner';
   const load = async () => {
     const [st, us, js, is] = await Promise.all([api<S>('/api/settings'), api<User[]>('/api/users'), api<Job[]>(`/api/jobs${jobState ? `?state=${jobState}` : ''}`), api<Issue[]>('/api/issues')]);
-    setS(st); setStudio(st.studio); setUsers(us); setJobs(js); setIssues(is);
+    setS(st); setStudio(st.studio); setUsers(us); setJobs(js); setIssues(is); setTokens(await api<PluginToken[]>('/api/access/tokens'));
   };
   useEffect(() => { void load(); }, [jobState]);
   useEffect(() => { if (s?.email.lastTest?.state === 'pending' || s?.email.lastTest?.state === 'running') { const t = setTimeout(() => void api<S>('/api/settings').then(setS), 2000); return () => clearTimeout(t); } }, [s]);
@@ -77,6 +78,15 @@ export function Settings({ me }: { me: Me }) {
             <Row key={k}><div className="min-w-0 flex-1"><p>{i.kind.replace('_', ' ')}</p><p className="truncate text-sm text-neutral-500">{i.path}{i.detail ? ` · ${i.detail}` : ''}</p></div>
               {i.kind === 'transfer_pending' && i.id && <Button kind="secondary" onClick={() => void run(() => api(`/api/projects/${i.id}/approve-transfer`, { method: 'POST' }), 'Transfer approved')}>Approve</Button>}
               {i.kind === 'duplicate_id' && <Button kind="secondary" onClick={() => void run(() => api('/api/issues/adopt', { method: 'POST', body: JSON.stringify({ path: i.path }) }), 'Adopted as new')}>Adopt as new</Button>}</Row>))}
+        </Card>
+        <Card title="Access">
+          <p className="mb-2 text-sm text-neutral-500">Tokens for the Lightroom plugin. A token is shown once; paste it into the plugin's settings.</p>
+          {tokens.map((t) => <Row key={t.id}><div className="min-w-0 flex-1"><p>{t.name} <Pill tone={t.scope === 'read+write' ? 'blue' : 'neutral'}>{t.scope}</Pill></p><p className="text-sm text-neutral-500">by {t.createdBy} · {ago(t.createdAt)} ago{t.projectId ? ' · one project' : ''}</p></div><Button kind="plain" onClick={() => { if (confirm(`Revoke ${t.name}? Lightroom will stop syncing until a new token is entered.`)) void run(() => api(`/api/access/tokens/${t.id}`, { method: 'DELETE' }), 'Revoked'); }}>Revoke</Button></Row>)}
+          {minted && <div className="mt-3 rounded-xl bg-amber-50 p-3 text-sm dark:bg-amber-950" data-testid="minted-token"><p className="font-medium">{minted.name}</p><code className="block break-all">{minted.token}</code><div className="mt-2 flex gap-2"><Button kind="secondary" type="button" onClick={() => void navigator.clipboard?.writeText(minted.token)}>Copy</Button><Button kind="plain" type="button" onClick={() => setMinted(null)}>Done</Button></div><p className="mt-1 text-neutral-500">This is the only time it is shown.</p></div>}
+          <form onSubmit={(e) => { e.preventDefault(); void api<{ token: string }>('/api/access/tokens', { method: 'POST', body: JSON.stringify(newToken) }).then((r) => { setMinted({ name: newToken.name, token: r.token }); setNewToken({ name: '', scope: 'read+write' }); return load(); }).catch((err) => setToast(err instanceof ApiError ? `Error: ${err.message}` : 'Failed')); }} className="mt-4 flex flex-wrap items-end gap-2">
+            <div className="flex-1"><Input label="New token name" required value={newToken.name} placeholder="Sam's MacBook" onChange={(e) => setNewToken({ ...newToken, name: e.target.value })} /></div>
+            <Select label="Scope" value={newToken.scope} onChange={(e) => setNewToken({ ...newToken, scope: e.target.value })}><option value="read+write">read+write</option><option value="read">read</option></Select>
+            <Button>Create token</Button></form>
         </Card>
         <Card title="Coming later">{LATER.map(([n, m]) => <Row key={n}><span className="flex-1 text-neutral-400">{n}</span><span className="text-xs text-neutral-400">{m}</span></Row>)}</Card>
       </div>
