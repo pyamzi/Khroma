@@ -1,4 +1,4 @@
-export type TemplateName = 'magic_link' | 'test_delivery';
+export type TemplateName = 'magic_link' | 'test_delivery' | 'culling_finished' | 'extras_requested';
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const shell = (title: string, body: string) =>
   `<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;max-width:560px;margin:40px auto;padding:0 20px;color:#111"><h1 style="font-size:20px">${esc(title)}</h1>${body}</body></html>`;
@@ -13,6 +13,16 @@ const T: Record<TemplateName, (v: Record<string, string>) => { subject: string; 
     subject: `${v.studio}: email delivery works`,
     text: `This is a test message from ${v.studio}. Email is configured correctly.`,
     html: shell(`${v.studio ?? ''}: email delivery works`, `<p>Email is configured correctly.</p>`),
+  }),
+  culling_finished: (v) => ({
+    subject: `${v.by} finished picking · ${v.project}`,
+    text: `${v.by} picked ${v.count} photos for ${v.project}. Open the project:\n\n${v.url}`,
+    html: shell(`${v.project ?? ''}: picks are in`, `<p>${esc(v.by ?? '')} picked <strong>${esc(v.count ?? '')}</strong> photos.</p><p><a href="${esc(v.url ?? '')}">Open the project</a></p>`),
+  }),
+  extras_requested: (v) => ({
+    subject: `${v.by} wants ${v.count} extra photos · ${v.project}`,
+    text: `${v.by} asked for ${v.count} extra photos on ${v.project}. Grant them or send an invoice:\n\n${v.url}`,
+    html: shell(`${v.project ?? ''}: extra photos requested`, `<p>${esc(v.by ?? '')} asked for <strong>${esc(v.count ?? '')}</strong> extra photos.</p><p><a href="${esc(v.url ?? '')}">Open the project</a></p>`),
   }),
 };
 export function renderTemplate(name: TemplateName, vars: Record<string, string>) { return T[name](vars); }

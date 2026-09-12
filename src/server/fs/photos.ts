@@ -10,6 +10,7 @@ import { extractPreview, makeThumb, PreviewError } from './previews.js';
 import { enqueue, type Handlers } from '../jobs/queue.js';
 import { newId } from './ids.js';
 import { RESERVED_DIRS } from './paths.js';
+import { onCullingMediaIndexed } from '../domain/transitions.js';
 
 export const PREVIEW_EDGE = 2048;
 export const THUMB_EDGE = 400;
@@ -94,6 +95,7 @@ export async function indexProjectMedia(db: Db, photosDir: string, projectId: st
   }
   for (const [rel, p] of existing) if (!seen.has(rel) && !p.missing) { db.update(photos).set({ missing: true }).where(eq(photos.id, p.id)).run(); report.missing++; }
   db.update(projects).set({ lastIndexedAt: new Date().toISOString() }).where(eq(projects.id, projectId)).run();
+  if (report.added > 0 || report.updated > 0) await onCullingMediaIndexed(db, photosDir, projectId);
   return report;
 }
 
