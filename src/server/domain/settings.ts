@@ -3,6 +3,7 @@ import { desc, eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { users, jobs, events } from '../db/schema.js';
 import { getSetting, setSetting } from '../db/settings.js';
+import { setSecretSetting } from '../db/secrets.js';
 import { resolveTransport, type EmailConfig } from '../email/transport.js';
 import { sendEmail } from '../email/send.js';
 import { createMagicLink } from '../auth/magic.js';
@@ -27,8 +28,9 @@ export function setStudio(db: Db, patch: Partial<StudioSettings>, actor: string)
   db.insert(events).values({ actor, type: 'settings_changed', payload: { keys: Object.keys(patch) } }).run();
   return next;
 }
-export function setEmailConfig(db: Db, cfg: EmailConfig, actor: string): void {
-  setSetting(db, 'email', cfg); db.insert(events).values({ actor, type: 'settings_changed', payload: { keys: ['email'] } }).run();
+/** Encrypted at rest with a key derived from SESSION_SECRET (spec §16). */
+export function setEmailConfig(db: Db, cfg: EmailConfig, secret: string, actor: string): void {
+  setSecretSetting(db, 'email', cfg, secret); db.insert(events).values({ actor, type: 'settings_changed', payload: { keys: ['email'] } }).run();
 }
 export function emailStatus(db: Db, config: Config) {
   const t = resolveTransport(db, config);

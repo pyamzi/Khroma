@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openDb, migrate } from '../../src/server/db/client.js';
-import { users, jobs } from '../../src/server/db/schema.js';
+import { users, jobs, settings } from '../../src/server/db/schema.js';
 import { loadConfig } from '../../src/server/config.js';
 import { runOnce } from '../../src/server/jobs/queue.js';
 import { makeEmailHandlers } from '../../src/server/email/send.js';
@@ -21,7 +21,8 @@ describe('settings', () => {
   it('email config, status, and a delivery test that reports the job state', async () => {
     const db = fresh();
     expect(emailStatus(db, config)).toMatchObject({ configured: false, lastTest: null });
-    setEmailConfig(db, { type: 'smtp', url: 'smtp://u:p@h:587', from: 'S <s@x>' }, 'owner@x');
+    setEmailConfig(db, { type: 'smtp', url: 'smtp://u:p@h:587', from: 'S <s@x>' }, config.sessionSecret, 'owner@x');
+    expect(JSON.stringify(db.select().from(settings).all())).not.toContain('smtp://u:p@h'); // encrypted at rest
     expect(emailStatus(db, config)).toMatchObject({ configured: true, describe: 'smtp h:587' });
     const { jobId } = sendDeliveryTest(db, { to: 'owner@x', actor: 'owner@x' });
     expect(emailStatus(db, config).lastTest).toMatchObject({ jobId, state: 'pending' });

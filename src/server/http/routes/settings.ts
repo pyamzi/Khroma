@@ -26,7 +26,7 @@ export const settingsRoutes = (config: Config) => new Hono<AppEnv>()
   })
   .put('/api/settings/email', requireKind('admin'), ownerOnly(), async (c) => {
     const b = EmailBody.safeParse(await c.req.json().catch(() => null)); if (!b.success) return c.json({ error: 'invalid body' }, 400);
-    setEmailConfig(c.get('db'), b.data, c.get('session')!.subject); return c.json(emailStatus(c.get('db'), config));
+    setEmailConfig(c.get('db'), b.data, config.sessionSecret, c.get('session')!.subject); return c.json(emailStatus(c.get('db'), config));
   })
   .post('/api/settings/email/test', requireKind('admin'), (c) => c.json(sendDeliveryTest(c.get('db'), { to: c.get('session')!.subject, actor: c.get('session')!.subject })))
   .get('/api/users', requireKind('admin'), (c) => c.json(listUsers(c.get('db'))))
