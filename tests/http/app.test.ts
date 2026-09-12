@@ -14,6 +14,8 @@ import { rescan } from '../../src/server/fs/index.js';
 import { indexProjectMedia, makePreviewHandlers } from '../../src/server/fs/photos.js';
 import { writeJsonAtomic } from '../../src/server/fs/json.js';
 import { defaultClientJson, defaultProjectJson } from '../../src/server/fs/schemas.js';
+import { photos as photosTable } from '../../src/server/db/schema.js';
+import { eq } from 'drizzle-orm';
 
 const SMTP = { type: 'smtp', url: 'smtp://u:p@h:587', from: 'S <s@x>' };
 
@@ -84,6 +86,9 @@ describe('app', () => {
     const img = await api(`/api/photos/${photos[0]!.id}/preview?size=thumb`, { cookie });
     expect(img.status).toBe(200); expect(img.headers.get('content-type')).toBe('image/jpeg');
     expect((await api(`/api/photos/${photos[0]!.id}/preview`)).status).toBe(404);          // no session → not found, no leak
+    db.update(photosTable).set({ missing: true }).where(eq(photosTable.id, photos[0]!.id)).run();
+    expect((await api(`/api/photos/${photos[0]!.id}/preview?size=thumb`, { cookie })).status).toBe(404); // deleted on disk: cached file is not served
+    db.update(photosTable).set({ missing: false }).where(eq(photosTable.id, photos[0]!.id)).run();
     expect((await api(`/api/projects/${p.id}/approve-transfer`, { method: 'POST', cookie })).status).toBe(401); // client is not admin
     await api('/api/auth/request', { method: 'POST', body: JSON.stringify({ email: 'stranger@x.com' }) }); await drain();
     expect(mail.sent).toHaveLength(2);                                                        // unknown email: nothing sent, same 200

@@ -15,6 +15,9 @@ export const ClientJson = z.object({
 });
 export type ClientJson = z.infer<typeof ClientJson>;
 
+/** One plain path segment inside the project folder: no separators, no dot names, not reserved. */
+export const FolderName = z.string().min(1).max(200).regex(/^[^/\\]+$/).refine((s) => !s.startsWith('.') && s !== 'project.json', { message: 'invalid folder name' });
+
 export const ProjectJson = z.object({
   schemaVersion: z.literal(1),
   id: z.string().uuid().optional(),
@@ -25,7 +28,7 @@ export const ProjectJson = z.object({
   date: z.string().nullable().default(null),
   package: z.string().nullable().default(null),
   assignedTo: z.string().nullable().default(null),
-  folders: z.object({ culling: z.string(), finals: z.string() }).default({ culling: 'raw', finals: 'finals' }),
+  folders: z.object({ culling: FolderName, finals: FolderName }).default({ culling: 'raw', finals: 'finals' }),
   allowance: z.object({ included: z.number().int().min(0), extraPrice: z.number().int().min(0), slots: z.number().int().min(0) })
     .default({ included: 0, extraPrice: 0, slots: 0 }),
   downloads: z.enum(['client', 'password', 'none']).default('client'),

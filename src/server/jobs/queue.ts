@@ -54,6 +54,10 @@ export function recoverLeases(db: Db, now: number): number {
   return db.update(jobs).set({ state: 'pending', leasedUntil: null }).where(and(eq(jobs.state, 'running'), lt(jobs.leasedUntil, now))).run().changes;
 }
 
+/** Only terminal, reviewable states can be retried; a done job would repeat its side effect and a running one would double-execute. */
 export function retryJob(db: Db, id: string): void {
-  db.update(jobs).set({ state: 'pending', attempts: 0, nextAt: Date.now(), lastError: null }).where(eq(jobs.id, id)).run();
+  const j = db.select({ state: jobs.state }).from(jobs).where(eq(jobs.id, id)).get();
+  if (!j) throw new Error('unknown job');
+  if (j.state !== 'failed' && j.state !== 'needs_review') throw new Error(`job is ${j.state}, not retryable`);
+  db.update(jobs).set({ state: 'pending', attempts: 0, nextAt: Date.now(), leasedUntil: null, lastError: null }).where(eq(jobs.id, id)).run();
 }

@@ -45,6 +45,7 @@ export const photos = sqliteTable('photos', {
   projectId: text('project_id').notNull().references(() => projects.id),
   relPath: text('rel_path').notNull(), // relative to project folder
   draftRelPath: text('draft_rel_path'),
+  live: integer('live', { mode: 'boolean' }).notNull().default(true), // the file at rel_path exists and is what clients see
   stage: text('stage', { enum: ['culling', 'final'] }).notNull(),
   kind: text('kind', { enum: ['photo', 'video'] }).notNull(),
   sourcePhotoId: text('source_photo_id'),

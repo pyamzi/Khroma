@@ -1,0 +1,1 @@
+ALTER TABLE `photos` ADD `live` integer DEFAULT true NOT NULL;

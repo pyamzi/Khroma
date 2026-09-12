@@ -54,7 +54,7 @@ export function loadPhoto(): MiddlewareHandler<WithPhoto> {
   return async (c, next) => {
     const db = c.get('db'); const ph = db.select().from(photos).where(eq(photos.id, c.req.param('photoId') ?? '')).get();
     const p = ph && db.select().from(projects).where(eq(projects.id, ph.projectId)).get();
-    if (!ph || !p || canAccessProject(db, c.get('session'), p) !== 'ok') return c.json({ error: 'not found' }, 404);
+    if (!ph || ph.missing || !p || canAccessProject(db, c.get('session'), p) !== 'ok') return c.json({ error: 'not found' }, 404);
     c.set('project', p); c.set('photo', ph); await next();
   };
 }

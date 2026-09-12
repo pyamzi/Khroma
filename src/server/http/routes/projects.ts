@@ -26,7 +26,7 @@ export const projectRoutes = (photosDir: string) => new Hono<AppEnv>()
   .get('/api/projects/:id/photos', loadProject(), (c) => {
     const admin = isAdmin(c.get('db'), c.get('session'));
     const rows = c.get('db').select().from(photos).where(and(eq(photos.projectId, c.get('project').id), eq(photos.missing, false))).all()
-      .filter((r) => admin || !r.draftRelPath)
+      .filter((r) => admin || r.live)
       .sort((a, b) => a.sortOrder - b.sortOrder || (a.capturedAt ?? '').localeCompare(b.capturedAt ?? '') || a.relPath.localeCompare(b.relPath));
     return c.json(rows.map((r) => ({ id: r.id, relPath: r.relPath, stage: r.stage, kind: r.kind, width: r.width, height: r.height, section: r.section, hasDraft: !!r.draftRelPath })));
   })
