@@ -9,9 +9,11 @@ export type AppEnv = { Variables: { session: SessionRow | null; sessionToken: st
 export function dbMiddleware(db: Db): MiddlewareHandler<AppEnv> {
   return async (c, next) => { c.set('db', db); await next(); };
 }
+/** Cookie sessions for people; `Authorization: Bearer ogp_…` for the Lightroom plugin (and later MCP). */
 export function sessionMiddleware(db: Db): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const token = getCookie(c, COOKIE) ?? null;
+    const bearer = c.req.header('authorization')?.match(/^Bearer\s+(ogp_[A-Za-z0-9_-]+)$/)?.[1] ?? null;
+    const token = bearer ?? getCookie(c, COOKIE) ?? null;
     c.set('sessionToken', token); c.set('session', token ? sessionFromToken(db, token) : null);
     await next();
   };

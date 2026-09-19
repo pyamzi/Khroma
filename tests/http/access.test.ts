@@ -36,11 +36,13 @@ describe('canAccessProject', () => {
     for (const id of ['p1', 'p2', 'p3', 'p4', 'p5']) expect(canAccessProject(db, owner, P(db, id))).toBe('ok');
     expect(canAccessProject(db, impostor, P(db, 'p1'))).toBe('forbidden');
   });
-  it('guests are bound to their session project; plugin tokens are not granted yet', () => {
+  it('guests are bound to their session project; project-scoped plugin tokens too', () => {
     const { db, guest, plugin } = fresh();
     expect(canAccessProject(db, guest, P(db, 'p1'))).toBe('ok');
     expect(canAccessProject(db, guest, P(db, 'p2'))).toBe('forbidden');
-    expect(canAccessProject(db, plugin, P(db, 'p1'))).toBe('forbidden');
+    expect(canAccessProject(db, plugin, P(db, 'p1'))).toBe('ok');
+    expect(canAccessProject(db, plugin, P(db, 'p2'))).toBe('forbidden');
+    expect(canAccessProject(db, plugin, P(db, 'p4'))).toBe('forbidden'); // archived
   });
   it('lists projects per session', () => {
     const { db, sarah, owner, guest } = fresh();
