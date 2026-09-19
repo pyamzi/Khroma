@@ -1,8 +1,8 @@
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, sum } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { clients, projects, events } from '../db/schema.js';
+import { clients, projects, events, slotGrants } from '../db/schema.js';
 import { readJson, writeJsonAtomic } from './json.js';
 import { ClientJson, ProjectJson, MACHINE_FIELDS, splitFields } from './schemas.js';
 import { newId } from './ids.js';
@@ -105,8 +105,7 @@ export async function rescan(db: Db, photosDir: string): Promise<RescanReport> {
         found.push({ kind: 'transfer_pending', path: p.rel, id }); continue;
       }
       // machine fields are projections of the db; restore them if the file drifted
-      const stored = ProjectJson.parse(existing.metadataJson);
-      const projection: ProjectJson = { ...stored, id, stateVersion: existing.stateVersion, state: { booking: existing.bookingState, production: existing.productionState, archivedAt: existing.archivedAt } };
+      const projection = buildProjection(tx as unknown as Db, existing);
       const drift = MACHINE_FIELDS.filter((k) => JSON.stringify(p.data[k]) !== JSON.stringify(projection[k]));
       const merged: ProjectJson = { ...projection, ...splitFields(p.data).human };
       if (drift.length) { found.push({ kind: 'machine_field_edited', path: p.rel, id, detail: drift.join(',') }); restores.push(writeJsonAtomic(join(p.abs, 'project.json'), merged)); }
@@ -123,12 +122,29 @@ export async function rescan(db: Db, photosDir: string): Promise<RescanReport> {
   return { clients: seenClients.length - badClients.size, projects: seenProjects.length - badProjects.size, issues: found };
 }
 
+export type ProjectRow = typeof projects.$inferSelect;
+
+export function entitlementOf(db: Db, row: ProjectRow): number {
+  const included = ProjectJson.parse(row.metadataJson).allowance.included;
+  const granted = db.select({ s: sum(slotGrants.delta) }).from(slotGrants).where(eq(slotGrants.projectId, row.id)).get()?.s;
+  return included + Number(granted ?? 0);
+}
+
+/** The file the database says this project should have: human fields as stored, machine fields from columns. */
+export function buildProjection(db: Db, row: ProjectRow): ProjectJson {
+  const stored = ProjectJson.parse(row.metadataJson);
+  return {
+    ...stored, id: row.id, stateVersion: row.stateVersion,
+    state: { booking: row.bookingState, production: row.productionState, archivedAt: row.archivedAt },
+    allowance: { ...stored.allowance, slots: entitlementOf(db, row) },
+  };
+}
+
 /** Write the project's JSON from the database (human fields kept from the stored copy). */
 export async function writeProjection(db: Db, photosDir: string, projectId: string): Promise<void> {
   const row = db.select().from(projects).where(eq(projects.id, projectId)).get();
   if (!row) throw new Error(`unknown project ${projectId}`);
-  const stored = ProjectJson.parse(row.metadataJson);
-  const projection: ProjectJson = { ...stored, id: row.id, stateVersion: row.stateVersion, state: { booking: row.bookingState, production: row.productionState, archivedAt: row.archivedAt } };
+  const projection = buildProjection(db, row);
   db.update(projects).set({ metadataJson: projection as Record<string, unknown> }).where(eq(projects.id, projectId)).run();
   await writeJsonAtomic(join(photosDir, row.folderPath, 'project.json'), projection);
 }

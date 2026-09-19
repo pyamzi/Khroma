@@ -8,3 +8,5 @@ dist/
 *.db-shm
 coverage/
 References/
+test-results/
+playwright-report/

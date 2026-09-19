@@ -36,6 +36,7 @@ export const projects = sqliteTable('projects', {
   archivedAt: text('archived_at'),
   date: text('date'),
   currentRound: integer('current_round').notNull().default(1),
+  selectionVersion: integer('selection_version').notNull().default(1),
   lastIndexedAt: text('last_indexed_at'),
   metadataJson: text('metadata_json', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
 }, (t) => ({ folderIdx: uniqueIndex('projects_folder').on(t.folderPath) }));

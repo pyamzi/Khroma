@@ -10,6 +10,8 @@ import { auth } from './http/routes/auth.js';
 import { projectRoutes } from './http/routes/projects.js';
 import { photoRoutes } from './http/routes/photos.js';
 import { issueRoutes } from './http/routes/issues.js';
+import { selectionRoutes } from './http/routes/selection.js';
+import { commentRoutes } from './http/routes/comments.js';
 
 export type AppDeps = { db: Db; config: Config; photosDir: string; webRoot?: string };
 
@@ -35,6 +37,7 @@ export function createApp({ db, config, photosDir, webRoot = './dist/web' }: App
   });
   app.route('/', health(config)); app.route('/', setup(config)); app.route('/', auth(config));
   app.route('/', projectRoutes(photosDir)); app.route('/', photoRoutes(photosDir)); app.route('/', issueRoutes());
+  app.route('/', selectionRoutes(config, photosDir)); app.route('/', commentRoutes());
   app.use('/assets/*', serveStatic({ root: webRoot }));
   app.get('*', serveStatic({ root: webRoot, path: 'index.html' }));
   return app;
