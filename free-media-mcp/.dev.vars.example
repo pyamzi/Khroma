@@ -1,0 +1,9 @@
+# Copy to .dev.vars for `wrangler dev`. In production use `wrangler secret put <NAME>`.
+PEXELS_API_KEY=
+# Optional third provider (https://pixabay.com/api/docs/)
+PIXABAY_API_KEY=
+# Optional: raises Openverse rate limits (register at https://api.openverse.org/v1/#tag/auth)
+OPENVERSE_CLIENT_ID=
+OPENVERSE_CLIENT_SECRET=
+# Optional: when set, every request must send "Authorization: Bearer <MCP_TOKEN>"
+MCP_TOKEN=
