@@ -127,5 +127,5 @@ Workers KV, not the Cache API: the Cache API is a no-op on `*.workers.dev` and i
 - Anonymous Openverse limits are per egress IP shared with other Workers; set the Openverse client credentials for anything beyond light use.
 - Pixabay `square` and all Pixabay video orientation filtering happen after the fact by dimensions, so those provider slots may return fewer than requested.
 - Pexels videos and Pixabay items have no title; Pexels photo titles are the `alt` text.
-- `get_attribution` re-fetches each item (cached), so credits are only as fresh as the cache.
+- `get_attribution` re-fetches each item through the provider detail endpoint (cached 1 h / 24 h per id), so a call with many Openverse ids spends that many requests against the anonymous 20/min burst limit. Every `search_media` result already carries a plain-text `attribution_text`; use `get_attribution` for the items actually placed, or set the Openverse client credentials.
 - No pagination, no color or size filters, no Unsplash (v1 scope).

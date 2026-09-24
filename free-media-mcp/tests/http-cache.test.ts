@@ -46,3 +46,17 @@ describe('cached', () => {
     expect(a).not.toBe(b);
   });
 });
+
+describe('cached: KV failures never fail the read', () => {
+  it('returns the loaded value when put throws (e.g. daily write quota exhausted)', async () => {
+    const kv = fakeKv();
+    kv.put = async () => { throw new Error('KV PUT failed: 429'); };
+    await expect(cached(kv, 'https://x/?q=quota', 60, async () => ({ n: 2 }))).resolves.toEqual({ n: 2 });
+  });
+
+  it('treats a throwing get as a cache miss', async () => {
+    const kv = fakeKv();
+    kv.get = (async () => { throw new Error('KV GET failed'); }) as typeof kv.get;
+    await expect(cached(kv, 'https://x/?q=miss', 60, async () => ({ n: 3 }))).resolves.toEqual({ n: 3 });
+  });
+});
