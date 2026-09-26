@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   // Search/detail cache. Create with: npx wrangler kv namespace create MEDIA_CACHE
   // and paste the returned id here. Any placeholder works for `wrangler dev`.
-  "kv_namespaces": [{ "binding": "MEDIA_CACHE", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+  "kv_namespaces": [{ "binding": "MEDIA_CACHE", "id": "d77aa097c0c94aa4b706122d4dd090a4" }],
   // Per-IP gate for the authless endpoint. period must be 10 or 60.
   "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } }],
   "observability": { "enabled": true }
