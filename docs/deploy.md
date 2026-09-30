@@ -8,7 +8,7 @@ These need your accounts. Nothing here is automated.
 
 1. **Fly.io**: install `flyctl`, then run `fly auth login`.
 2. **Neon**: create a project in `aws-us-east-2` (Ohio). Copy the **pooled** connection string (the host contains `-pooler`).
-   The first migration runs `CREATE ROLE og_app`, so connect as the role Neon created with the project. Console-created roles belong to `neon_superuser` and have CREATEROLE. If the release step fails on `CREATE ROLE`, this is why.
+   The first migration runs `CREATE ROLE og_app` and `CREATE ROLE og_system`, so connect as the role Neon created with the project. Console-created roles belong to `neon_superuser` and have CREATEROLE. If the release step fails on `CREATE ROLE`, this is why.
 3. **Cloudflare R2**: create a bucket `opengallery-media`. Then create an R2 API token with *Object Read & Write*, scoped to that bucket, and note the account id, access key id, and secret.
 4. **Email**: a transactional provider's SMTP URL (for example Postmark or Resend), plus a verified sender address for `EMAIL_FROM`.
 
@@ -39,6 +39,10 @@ Run `fly deploy`. Migrations run first; a failed migration aborts the release, a
 
 Neon keeps point-in-time history (7 days on the free plan, longer on paid plans). In the Neon console, go to *Branches → Restore* and pick a timestamp before the incident. Alternatively, create a branch at that time and point `DATABASE_URL` at it with `fly secrets set`. Then run `npm run check:tenancy` against it.
 
+## Running SQL by hand
+
+Every tenant table forces row-level security, so an owner-role session in the Neon console sees **no rows**. Start a transaction with `SET LOCAL ROLE og_system;` to see all Studios, or with `SET LOCAL ROLE og_app; SELECT set_config('app.studio_id', '<id>', true);` to see one Studio.
+
 ## Local development
 
-`npm run dev` uses an on-disk PGlite database at `.data/dev` and in-memory photo storage, so no accounts are needed. Emails stay queued unless `SMTP_URL` is set.
+`npm run dev` uses an on-disk PGlite database at `.data/dev` and in-memory photo storage, so no accounts are needed. Without `SMTP_URL`, emails fail and retry, then park as `failed` in Settings → Jobs. To sign in locally, set `SMTP_URL` to a local catcher such as Mailpit (`smtp://localhost:1025`).
