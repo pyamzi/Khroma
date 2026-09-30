@@ -1,38 +1,42 @@
 import { describe, it, expect } from 'vitest';
-import { openDb, migrate } from '../../src/server/db/client.js';
+import { sql } from 'drizzle-orm';
+import { asSystem } from '../../src/server/db/tenancy.js';
 import { createMagicLink, redeemMagicLink, sessionFromToken, signOut, TTL } from '../../src/server/auth/magic.js';
+import { testDb, makeStudio } from '../helpers.js';
 
 const T0 = 1_700_000_000_000;
-function fresh() { const db = openDb(':memory:'); migrate(db); return db; }
+async function fresh() { const db = await testDb(); const { studioId } = await makeStudio(db); return { studioId, sys: <T>(f: Parameters<typeof asSystem<T>>[1]) => asSystem(db, f) }; }
 
 describe('magic links', () => {
-  it('redeems once and yields a session', () => {
-    const db = fresh(); const { token } = createMagicLink(db, { kind: 'client', email: 'A@X', now: T0 });
-    const r = redeemMagicLink(db, token, T0 + 1000)!;
-    expect(r.session.kind).toBe('client'); expect(r.session.subject).toBe('a@x');
-    expect(redeemMagicLink(db, token, T0 + 2000)).toBeNull();          // single use
-    expect(sessionFromToken(db, r.sessionToken, T0 + 3000)?.id).toBe(r.session.id);
-    expect(sessionFromToken(db, token, T0 + 3000)).toBeNull();          // login token is not a session token
+  it('redeems once and yields a session in the link\'s Studio', async () => {
+    const { studioId, sys } = await fresh(); const { token } = await sys((tx) => createMagicLink(tx, { kind: 'client', email: 'A@X', studioId, now: T0 }));
+    const r = (await sys((tx) => redeemMagicLink(tx, token, T0 + 1000)))!;
+    expect([r.session.kind, r.session.subject, r.session.studioId]).toEqual(['client', 'a@x', studioId]);
+    expect(await sys((tx) => redeemMagicLink(tx, token, T0 + 2000))).toBeNull();          // single use
+    expect((await sys((tx) => sessionFromToken(tx, r.sessionToken, T0 + 3000)))?.id).toBe(r.session.id);
+    expect(await sys((tx) => sessionFromToken(tx, token, T0 + 3000))).toBeNull();          // login token is not a session token
   });
-  it('expires client links after 30 days and admin links after 15 minutes', () => {
-    const db = fresh();
-    const c = createMagicLink(db, { kind: 'client', email: 'a@x', now: T0 });
-    const a = createMagicLink(db, { kind: 'admin', email: 'o@x', now: T0 });
-    expect(redeemMagicLink(db, c.token, T0 + TTL.client + 1)).toBeNull();
-    expect(redeemMagicLink(db, a.token, T0 + TTL.admin + 1)).toBeNull();
-    expect(redeemMagicLink(db, createMagicLink(db, { kind: 'admin', email: 'o@x', now: T0 }).token, T0 + TTL.admin - 1)).not.toBeNull();
+  it('expires client links after 30 days and admin links after 15 minutes', async () => {
+    const { studioId, sys } = await fresh();
+    const c = await sys((tx) => createMagicLink(tx, { kind: 'client', email: 'a@x', studioId, now: T0 }));
+    const a = await sys((tx) => createMagicLink(tx, { kind: 'admin', email: 'o@x', studioId, now: T0 }));
+    expect(await sys((tx) => redeemMagicLink(tx, c.token, T0 + TTL.client + 1))).toBeNull();
+    expect(await sys((tx) => redeemMagicLink(tx, a.token, T0 + TTL.admin + 1))).toBeNull();
+    const fresh2 = await sys((tx) => createMagicLink(tx, { kind: 'admin', email: 'o@x', studioId, now: T0 }));
+    expect(await sys((tx) => redeemMagicLink(tx, fresh2.token, T0 + TTL.admin - 1))).not.toBeNull();
   });
-  it('sessions expire and can be signed out', () => {
-    const db = fresh(); const { token } = createMagicLink(db, { kind: 'client', email: 'a@x', now: T0 });
-    const { sessionToken } = redeemMagicLink(db, token, T0)!;
-    expect(sessionFromToken(db, sessionToken, T0 + TTL.session + 1)).toBeNull();
-    expect(sessionFromToken(db, sessionToken, T0 + 1)).not.toBeNull();
-    signOut(db, sessionToken);
-    expect(sessionFromToken(db, sessionToken, T0 + 1)).toBeNull();
+  it('sessions expire and can be signed out', async () => {
+    const { studioId, sys } = await fresh(); const { token } = await sys((tx) => createMagicLink(tx, { kind: 'client', email: 'a@x', studioId, now: T0 }));
+    const { sessionToken } = (await sys((tx) => redeemMagicLink(tx, token, T0)))!;
+    expect(await sys((tx) => sessionFromToken(tx, sessionToken, T0 + TTL.session + 1))).toBeNull();
+    expect(await sys((tx) => sessionFromToken(tx, sessionToken, T0 + 1))).not.toBeNull();
+    await sys((tx) => signOut(tx, sessionToken));
+    expect(await sys((tx) => sessionFromToken(tx, sessionToken, T0 + 1))).toBeNull();
   });
-  it('stores only hashes', () => {
-    const db = fresh(); const { token } = createMagicLink(db, { kind: 'client', email: 'a@x', now: T0 });
-    const raw = db.$client.prepare('select login_token_hash from sessions').get() as { login_token_hash: string };
-    expect(raw.login_token_hash).not.toBe(token); expect(raw.login_token_hash).toHaveLength(64);
+  it('stores only hashes', async () => {
+    const { studioId, sys } = await fresh(); const { token } = await sys((tx) => createMagicLink(tx, { kind: 'client', email: 'a@x', studioId, now: T0 }));
+    const res = await sys((tx) => tx.execute<{ h: string }>(sql`select login_token_hash as h from sessions`));
+    const [raw] = 'rows' in res ? res.rows : res;
+    expect(raw!.h).not.toBe(token); expect(raw!.h).toHaveLength(64);
   });
 });
