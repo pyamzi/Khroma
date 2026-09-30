@@ -1,0 +1,283 @@
+<title>Free Media MCP Carousel</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..700,0..100&family=Archivo:wdth,wght@85..100,400..700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --ink: #1C1512;
+    --ink-2: #2A201B;
+    --sand: #F3E7D3;
+    --sand-2: #EBDCC2;
+    --line: #D6C3A3;
+    --amber: #E39A2E;
+    --rose: #B45A47;
+    --smoke: #7A6C60;
+    --white: #FFF9F0;
+    --bg: var(--sand);
+    --fg: var(--ink);
+    --display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+    --body: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --mono: 'JetBrains Mono', 'SFMono-Regular', Menlo, monospace;
+    color-scheme: light;
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--body); }
+
+  /* ---------- review layout (the artifact) ---------- */
+  .review { max-width: 1240px; margin: 0 auto; padding-block: 32px 64px; padding-inline: 16px; }
+  .review header { max-width: 66ch; margin-bottom: 28px; }
+  .review h1 { font-family: var(--display); font-weight: 400; font-size: clamp(30px, 4vw, 44px); line-height: 1.05; margin: 0 0 10px; text-wrap: balance; font-variation-settings: 'opsz' 96, 'SOFT' 40; }
+  .review p { margin: 0; color: var(--smoke); line-height: 1.5; }
+  .review p code { font-family: var(--mono); font-size: 0.9em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+  .frame { position: relative; width: 100%; aspect-ratio: 4 / 5; max-width: 100%; overflow: hidden; border-radius: 6px; box-shadow: 0 1px 0 var(--line), 0 12px 30px rgba(28,21,18,.12); background: var(--ink); }
+  .frame .slide { position: absolute; top: 0; left: 0; transform-origin: top left; transform: scale(var(--s, .3)); }
+  .frame-label { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--smoke); margin: 8px 0 0; }
+
+  /* ---------- the slides (1080 x 1350, Instagram 4:5) ---------- */
+  .slide { width: 1080px; height: 1350px; box-sizing: border-box; position: relative; overflow: hidden; background: var(--sand); color: var(--ink); padding: 84px 88px; display: flex; flex-direction: column; }
+  .slide.dark { background: var(--ink); color: var(--sand); }
+  .eyebrow { font-family: var(--mono); font-size: 22px; letter-spacing: .12em; text-transform: uppercase; color: var(--amber); margin: 0 0 22px; }
+  .slide h2 { font-family: var(--display); font-weight: 400; font-size: 92px; line-height: .98; margin: 0; text-wrap: balance; font-variation-settings: 'opsz' 144, 'SOFT' 30; letter-spacing: -.01em; }
+  .slide h2 em { font-style: italic; font-variation-settings: 'opsz' 144, 'SOFT' 100; color: var(--amber); }
+  .slide .lede { font-size: 31px; line-height: 1.38; margin: 30px 0 0; max-width: 24ch; }
+  .slide.dark .lede { color: var(--sand-2); }
+  .foot { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; font-family: var(--mono); font-size: 19px; color: var(--smoke); letter-spacing: .02em; }
+  .slide.dark .foot { color: #B9A995; }
+  .foot .n { font-variant-numeric: tabular-nums; }
+  .credit { font-family: var(--mono); font-size: 19px; color: var(--smoke); line-height: 1.4; }
+  .slide.dark .credit { color: #B9A995; }
+
+  /* slide 1: hero */
+  .hero { padding: 0; }
+  .hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 35%; }
+  .hero .veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(28,21,18,.62) 0%, rgba(28,21,18,.08) 22%, rgba(28,21,18,.05) 38%, rgba(28,21,18,.86) 72%, rgba(28,21,18,.96) 100%); }
+  .hero .copy { position: absolute; left: 88px; right: 88px; bottom: 84px; }
+  .hero h2 { font-size: 104px; color: var(--sand); }
+  .hero .lede { color: var(--sand-2); }
+  .hero .brand { position: absolute; top: 72px; left: 88px; right: 88px; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 22px; letter-spacing: .12em; text-transform: uppercase; color: var(--sand); }
+  .hero .chip { display: inline-block; margin-top: 34px; padding: 12px 18px; border: 1.5px solid rgba(243,231,211,.45); border-radius: 999px; font-family: var(--mono); font-size: 19px; color: var(--sand-2); }
+
+  /* slide 2: badges */
+  .badges { display: grid; gap: 22px; margin-top: 60px; }
+  .badge { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 28px; padding: 26px 30px; border: 2px solid var(--line); border-radius: 10px; background: var(--white); }
+  .badge .code { font-family: var(--mono); font-weight: 600; font-size: 44px; letter-spacing: .02em; color: var(--rose); }
+  .badge .what { font-size: 27px; line-height: 1.3; }
+  .badge .what b { display: block; font-weight: 700; }
+
+  /* slide 3: three tiles */
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 380px 200px; gap: 20px; margin-top: 44px; }
+  .tile { position: relative; overflow: hidden; border-radius: 10px; background: var(--ink-2); }
+  .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tile .tag { position: absolute; left: 18px; bottom: 18px; padding: 10px 16px; background: rgba(28,21,18,.82); color: var(--sand); border-radius: 999px; font-family: var(--mono); font-size: 19px; letter-spacing: .04em; }
+  .tile.text { grid-column: 1 / -1; background: var(--white); border: 2px dashed var(--line); color: var(--ink); display: flex; flex-direction: column; justify-content: center; padding: 26px 36px; gap: 8px; }
+  .tile.text .t1 { font-family: var(--mono); font-size: 21px; letter-spacing: .1em; text-transform: uppercase; color: var(--amber); }
+  .tile.text .t2 { font-size: 27px; line-height: 1.3; }
+
+  /* slide 4 & 6: code */
+  pre.code { margin: 48px 0 0; padding: 40px 44px; background: var(--ink); color: var(--sand); border-radius: 12px; font-family: var(--mono); font-size: 30px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; }
+  pre.code .k { color: #B9A995; }
+  pre.code .t { color: var(--amber); }
+  pre.code .f { color: var(--rose); }
+  pre.code .s { color: #F1D9B0; }
+  .annot { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px 28px; margin-top: 40px; font-size: 26px; line-height: 1.35; }
+  .annot b { font-family: var(--mono); font-weight: 600; font-size: 22px; letter-spacing: .06em; text-transform: uppercase; color: var(--rose); display: block; margin-bottom: 4px; }
+
+  /* slide 5: the count */
+  .count { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 56px; }
+  .stat { padding: 40px 36px; border-radius: 12px; background: var(--white); border: 2px solid var(--line); }
+  .stat.on { background: var(--ink); color: var(--sand); border-color: var(--ink); }
+  .stat .big { font-family: var(--display); font-size: 150px; line-height: .9; font-variation-settings: 'opsz' 144, 'SOFT' 40; font-variant-numeric: tabular-nums; }
+  .stat .big small { font-size: 60px; color: var(--smoke); }
+  .stat.on .big small { color: #B9A995; }
+  .stat .lab { font-family: var(--mono); font-size: 21px; letter-spacing: .08em; text-transform: uppercase; margin-top: 18px; color: var(--smoke); }
+  .stat.on .lab { color: var(--amber); }
+  .stat .desc { font-size: 26px; line-height: 1.35; margin-top: 14px; }
+  .toggles { margin-top: 26px; display: grid; gap: 14px; font-family: var(--mono); font-size: 26px; }
+  .toggles div { display: flex; justify-content: space-between; align-items: center; padding: 18px 24px; background: var(--white); border: 2px solid var(--line); border-radius: 10px; }
+  .toggles .sw { width: 92px; height: 48px; border-radius: 999px; background: var(--amber); position: relative; }
+  .toggles .sw::after { content: ''; position: absolute; top: 6px; right: 6px; width: 36px; height: 36px; border-radius: 50%; background: var(--ink); }
+
+  /* slide 6: TASL */
+  .tasl { display: flex; gap: 14px; margin-top: 44px; }
+  .tasl span { flex: 1; text-align: center; padding: 16px 0; border-radius: 10px; background: var(--white); border: 2px solid var(--line); font-family: var(--mono); font-size: 24px; }
+  .tasl span b { display: block; font-family: var(--display); font-size: 64px; line-height: 1; color: var(--rose); font-variation-settings: 'opsz' 144, 'SOFT' 60; }
+
+  /* slide 7: CTA */
+  .url { margin-top: 44px; padding: 34px 38px; background: var(--white); border: 2px solid var(--line); border-radius: 12px; font-family: var(--mono); font-size: 30px; line-height: 1.4; word-break: break-all; color: var(--ink); }
+  .steps { margin: 40px 0 0; padding: 0; list-style: none; display: grid; gap: 18px; font-size: 30px; line-height: 1.3; }
+  .steps li { display: grid; grid-template-columns: 56px 1fr; gap: 16px; align-items: baseline; }
+  .steps li span { font-family: var(--display); font-size: 44px; color: var(--amber); font-variation-settings: 'opsz' 144; }
+  .credits { margin-top: auto; padding-top: 34px; border-top: 2px solid var(--line); font-family: var(--mono); font-size: 18.5px; line-height: 1.55; color: var(--smoke); }
+  .credits p { margin: 0; }
+  .credits .pex { color: var(--ink); font-weight: 600; margin-bottom: 8px; }
+  .cta-band { margin-top: 44px; height: 310px; border-radius: 12px; overflow: hidden; position: relative; }
+  .cta-band img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 40%; display: block; }
+  .cta-band .tag { position: absolute; left: 18px; bottom: 18px; padding: 10px 16px; background: rgba(28,21,18,.82); color: var(--sand); border-radius: 999px; font-family: var(--mono); font-size: 19px; letter-spacing: .04em; }
+
+  /* ---------- render mode: ?slide=N (local headless Chrome only) ---------- */
+  body.render { background: var(--ink); }
+  body.render .review { display: none; }
+  body.render .stage { position: fixed; inset: 0; width: 1080px; height: 1350px; overflow: hidden; }
+
+  @media (prefers-reduced-motion: no-preference) { .frame { transition: box-shadow .2s; } }
+</style>
+
+<div class="review">
+  <header>
+    <h1>Free Media MCP, in seven slides</h1>
+    <p>An Instagram carousel (4:5, 1080×1350) made entirely with the deployed MCP: every photo, license block, count, and credit line came from live <code>search_media</code>, <code>get_media</code>, and <code>get_attribution</code> calls against <code>opengallery-free-media-mcp.pyam.workers.dev</code>. Pixabay is described but not shown, because its terms forbid hotlinking.</p>
+  </header>
+  <div class="grid" id="grid"></div>
+</div>
+
+<template id="slides">
+
+<!-- 1 · hero -->
+<section class="slide dark hero" data-n="1">
+  <img src="https://images.pexels.com/photos/39267678/pexels-photo-39267678.jpeg?auto=compress&amp;cs=tinysrgb&amp;fit=crop&amp;h=1350&amp;w=1080" alt="A couple embracing during a sunset, by Breno Cardoso on Pexels">
+  <div class="veil"></div>
+  <div class="brand"><span>OpenGallery</span><span>Free Media MCP</span></div>
+  <div class="copy">
+    <h2>Free, legal stock photos, <em>inside Claude.</em></h2>
+    <p class="lede">One search across Openverse, Pexels, and Pixabay. Licenses normalized. Credits written for you.</p>
+    <span class="chip">Photo by Breno Cardoso on Pexels</span>
+  </div>
+</section>
+
+<!-- 2 · the problem -->
+<section class="slide" data-n="2">
+  <p class="eyebrow">The problem</p>
+  <h2>Is this photo <em>actually</em> free to use?</h2>
+  <p class="lede">Most “free” image searches are license roulette. The photo looks free until it is on a client’s website.</p>
+  <div class="badges">
+    <div class="badge"><span class="code">NC</span><span class="what"><b>Non-commercial</b>Fine for a blog, not for a studio’s marketing.</span></div>
+    <div class="badge"><span class="code">ND</span><span class="what"><b>No derivatives</b>You may not crop it, and designs always crop.</span></div>
+    <div class="badge"><span class="code">?</span><span class="what"><b>Unknown</b>No license recorded. Never safe to assume.</span></div>
+  </div>
+  <div class="foot"><span>Openverse · Pexels · Pixabay</span><span class="n">2 / 7</span></div>
+</section>
+
+<!-- 3 · one search -->
+<section class="slide" data-n="3">
+  <p class="eyebrow">search_media · “golden hour wedding couple”</p>
+  <h2>One search, <em>three</em> libraries.</h2>
+  <p class="lede" style="max-width:32ch">Providers are queried in parallel and the results interleaved. If one fails, you get a warning, not an empty page.</p>
+  <div class="tiles">
+    <div class="tile"><img src="https://live.staticflickr.com/65535/53819519582_8678fc2a83_b.jpg" alt="Cupid's Span, by dalecruse on Flickr via Openverse"><span class="tag">openverse · CC BY 2.0</span></div>
+    <div class="tile"><img src="https://images.pexels.com/photos/13305426/pexels-photo-13305426.jpeg?auto=compress&amp;cs=tinysrgb&amp;fit=crop&amp;h=940&amp;w=940" alt="A bride hugging her groom, by casper somia on Pexels"><span class="tag">pexels · Pexels License</span></div>
+    <div class="tile text"><span class="t1">pixabay · optional third provider</span><span class="t2">Free key, photos and videos, cached 24 h as its terms require. Not shown here: Pixabay forbids hotlinking.</span></div>
+  </div>
+  <div class="foot"><span class="credit">“Cupid’s Span” by dalecruse, CC BY 2.0 · Photo by casper somia on Pexels</span><span class="n">3 / 7</span></div>
+</section>
+
+<!-- 4 · normalized license -->
+<section class="slide" data-n="4">
+  <p class="eyebrow">Every result, verbatim</p>
+  <h2>A license block <em>you can read.</em></h2>
+  <pre class="code"><span class="k">"license"</span>: {
+  <span class="k">"code"</span>: <span class="s">"cc-by"</span>,
+  <span class="k">"name"</span>: <span class="s">"CC BY 2.0"</span>,
+  <span class="k">"url"</span>: <span class="s">"https://creativecommons.org/licenses/by/2.0/"</span>,
+  <span class="k">"commercial_use"</span>: <span class="t">true</span>,
+  <span class="k">"modification_allowed"</span>: <span class="t">true</span>,
+  <span class="k">"attribution_required"</span>: <span class="t">true</span>,
+  <span class="k">"share_alike"</span>: <span class="f">false</span>
+}</pre>
+  <div class="annot">
+    <div><b>Ten codes, one table</b>CC0, PDM, the six CC variants, Pexels, Pixabay. Anything else is “unknown”.</div>
+    <div><b>Never guessed</b>Pexels and Pixabay rows come from their current license pages, not memory.</div>
+  </div>
+  <div class="foot"><span>From openverse:99557720 · “Cupid’s Span”</span><span class="n">4 / 7</span></div>
+</section>
+
+<!-- 5 · filtered by default -->
+<section class="slide" data-n="5">
+  <p class="eyebrow">Filtered by default</p>
+  <h2>The same query, <em>with the guard off.</em></h2>
+  <div class="count">
+    <div class="stat on"><div class="big">19<small>/20</small></div><div class="lab">Unfiltered · Openverse</div><div class="desc">results for “golden hour wedding couple” were CC BY-NC-SA. Non-commercial.</div></div>
+    <div class="stat"><div class="big">0<small>/8</small></div><div class="lab">Default search</div><div class="desc">unsafe licenses reached Claude. Every result was commercial and modifiable.</div></div>
+  </div>
+  <div class="toggles">
+    <div><span>commercial_use_only</span><span class="sw"></span></div>
+    <div><span>modification_allowed</span><span class="sw"></span></div>
+  </div>
+  <p class="lede" style="max-width:30ch;font-size:27px;margin-top:30px">Two booleans, on unless the user turns them off. Designs are commercial and always crop.</p>
+  <div class="foot"><span>Counts from a live call, 25 Sep 2026</span><span class="n">5 / 7</span></div>
+</section>
+
+<!-- 6 · attribution -->
+<section class="slide" data-n="6">
+  <p class="eyebrow">get_attribution · format: markdown</p>
+  <h2>The credit line, <em>already written.</em></h2>
+  <pre class="code" style="font-size:27px">"[<span class="s">Cupid's Span</span>](<span class="k">https://www.flickr.com/photos/91873384@N04/53819519582</span>)"
+by [<span class="s">dalecruse</span>](<span class="k">https://www.flickr.com/photos/91873384@N04</span>)
+is licensed under [<span class="t">CC BY 2.0</span>](<span class="k">https://creativecommons.org/licenses/by/2.0/</span>).</pre>
+  <div class="tasl">
+    <span><b>T</b>title</span><span><b>A</b>author</span><span><b>S</b>source</span><span><b>L</b>license</span>
+  </div>
+  <pre class="code" style="font-size:25px;margin-top:22px;padding:28px 34px"><span class="k">// same call, a Pexels photo, format: html</span>
+Photo by &lt;a href="https://www.pexels.com/@caspersomia"&gt;<span class="s">casper somia</span>&lt;/a&gt;
+on &lt;a href="https://www.pexels.com/photo/a-bride-hugging-her-groom-13305426/"&gt;<span class="t">Pexels</span>&lt;/a&gt;</pre>
+  <div class="foot"><span>Text, HTML, or Markdown. Paste it next to the image.</span><span class="n">6 / 7</span></div>
+</section>
+
+<!-- 7 · get it -->
+<section class="slide" data-n="7">
+  <p class="eyebrow">Plug and play</p>
+  <h2>Add it in <em>one</em> paste.</h2>
+  <div class="url">https://opengallery-free-media-mcp.pyam.workers.dev/mcp</div>
+  <ol class="steps">
+    <li><span>1</span><div>Claude → Customize → Connectors → Add custom connector.</div></li>
+    <li><span>2</span><div>Paste the URL. Choose <b>No sign-in</b>.</div></li>
+    <li><span>3</span><div>Ask for a photo. Claude searches, filters, and credits.</div></li>
+  </ol>
+  <div class="cta-band"><img src="https://images.pexels.com/photos/10427236/pexels-photo-10427236.jpeg?auto=compress&amp;cs=tinysrgb&amp;fit=crop&amp;h=620&amp;w=1808" alt="A couple embracing outdoors, by Julian de Wet on Pexels"><span class="tag">pexels · Photo by Julian de Wet</span></div>
+  <div class="credits">
+    <p class="pex">Photos provided by Pexels.</p>
+    <p>Photo by Breno Cardoso on Pexels · Photo by casper somia on Pexels · Photo by Julian de Wet on Pexels</p>
+    <p>“Cupid’s Span” by dalecruse is licensed under CC BY 2.0, via Openverse. Openverse does not verify licenses; confirm at the source before commercial use.</p>
+  </div>
+</section>
+
+</template>
+
+<script>
+  (function () {
+    var tpl = document.getElementById('slides');
+    var slides = Array.prototype.slice.call(tpl.content.querySelectorAll('.slide'));
+    var params = new URLSearchParams(location.search);
+    var only = params.get('slide');
+
+    if (only) {
+      // Local render mode for headless Chrome: one slide, native size, nothing else.
+      document.body.classList.add('render');
+      var stage = document.createElement('div');
+      stage.className = 'stage';
+      var s = slides[Number(only) - 1];
+      if (s) stage.appendChild(s.cloneNode(true));
+      document.body.appendChild(stage);
+      return;
+    }
+
+    var grid = document.getElementById('grid');
+    slides.forEach(function (s) {
+      var wrap = document.createElement('div');
+      var frame = document.createElement('div');
+      frame.className = 'frame';
+      frame.appendChild(s.cloneNode(true));
+      var label = document.createElement('p');
+      label.className = 'frame-label';
+      label.textContent = 'Slide ' + s.dataset.n + ' of 7';
+      wrap.appendChild(frame);
+      wrap.appendChild(label);
+      grid.appendChild(wrap);
+    });
+
+    function fit() {
+      document.querySelectorAll('.frame').forEach(function (f) {
+        f.style.setProperty('--s', (f.clientWidth / 1080).toFixed(4));
+      });
+    }
+    fit();
+    if (window.ResizeObserver) new ResizeObserver(fit).observe(grid); else window.addEventListener('resize', fit);
+  })();
+</script>

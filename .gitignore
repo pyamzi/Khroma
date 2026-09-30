@@ -10,3 +10,5 @@ coverage/
 References/
 test-results/
 playwright-report/
+.superpowers/
+.data/
