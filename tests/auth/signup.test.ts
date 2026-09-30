@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { studios, users } from '../../src/server/db/schema.js';
 import { asSystem } from '../../src/server/db/tenancy.js';
-import { signup } from '../../src/server/auth/signup.js';
+import { signup, sweepUnconfirmedStudios } from '../../src/server/auth/signup.js';
+import { requestSignIn } from '../../src/server/auth/signin.js';
+import { eq } from 'drizzle-orm';
 import { redeemMagicLink } from '../../src/server/auth/magic.js';
 import { testDb, makeStudio } from '../helpers.js';
 import { queuedMail } from './mail.js';
@@ -33,5 +35,43 @@ describe('signup', () => {
     expect(await asSystem(db, (tx) => tx.select().from(studios))).toHaveLength(1);
     const mail = await queuedMail(db);
     expect(mail.map((m) => [m.studioId, m.to])).toEqual([[a.studioId, 'm@x.com']]);
+  });
+});
+
+describe('unconfirmed signups (final review)', () => {
+  const studioRows = (db: Awaited<ReturnType<typeof testDb>>) => asSystem(db, (tx) => tx.select().from(studios));
+  it('an unconfirmed Studio emails as the platform, not under its chosen name', async () => {
+    const db = await testDb();
+    await asSystem(db, (tx) => signup(tx, { email: 'v@x.com', studioName: 'Your Bank', baseUrl: base }));
+    const [m] = await queuedMail(db);
+    expect([m!.fromName, m!.vars.studio]).toEqual(['OpenGallery', 'OpenGallery']);
+  });
+  it('the owner\'s first sign-in confirms the Studio; later emails carry its name', async () => {
+    const db = await testDb();
+    await asSystem(db, (tx) => signup(tx, { email: 'o@x.com', studioName: 'Lumen', baseUrl: base }));
+    const [m] = await queuedMail(db);
+    await asSystem(db, (tx) => redeemMagicLink(tx, m!.token!));
+    expect((await studioRows(db))[0]!.confirmedAt).not.toBeNull();
+    await asSystem(db, (tx) => requestSignIn(tx, { email: 'o@x.com', baseUrl: base }));
+    expect((await queuedMail(db)).at(-1)!.fromName).toBe('Lumen');
+  });
+  it('signing up again before confirming takes the new name (the real owner reclaims a squatted email)', async () => {
+    const db = await testDb();
+    await asSystem(db, (tx) => signup(tx, { email: 'v@x.com', studioName: 'Squatter', baseUrl: base }));
+    expect(await asSystem(db, (tx) => signup(tx, { email: 'v@x.com', studioName: 'Mine', baseUrl: base }))).toEqual({ created: false });
+    expect((await studioRows(db)).map((s) => s.name)).toEqual(['Mine']);
+  });
+  it('a confirmed Studio keeps its name when someone signs up with its email', async () => {
+    const db = await testDb(); await makeStudio(db, { name: 'Real', ownerEmail: 'o@x.com' });
+    await asSystem(db, (tx) => signup(tx, { email: 'o@x.com', studioName: 'Hijack', baseUrl: base }));
+    expect((await studioRows(db)).map((s) => s.name)).toEqual(['Real']);
+  });
+  it('unconfirmed Studios older than a day are swept, freeing the email', async () => {
+    const db = await testDb(); await makeStudio(db, { name: 'Established' });
+    await asSystem(db, (tx) => signup(tx, { email: 'v@x.com', studioName: 'Squatter', baseUrl: base }));
+    expect(await sweepUnconfirmedStudios(db, Date.now() + 23 * 3600_000)).toBe(0);
+    expect(await sweepUnconfirmedStudios(db, Date.now() + 25 * 3600_000)).toBe(1);
+    expect((await studioRows(db)).map((s) => s.name)).toEqual(['Established']);
+    expect(await asSystem(db, (tx) => tx.select().from(users).where(eq(users.email, 'v@x.com')))).toEqual([]);
   });
 });

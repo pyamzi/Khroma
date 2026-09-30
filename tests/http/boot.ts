@@ -34,7 +34,7 @@ export async function boot() {
   const signIn = async (email: string, studioName?: string) => { await post('/api/auth/request', { email }, ''); await drain(); return redeemLatest(email, studioName); };
   const signupOwner = async (email: string, studioName: string) => {
     await post('/api/signup', { email, studioName, over18: true }, ''); await drain();
-    const cookie = await redeemLatest(email, studioName);
+    const cookie = await redeemLatest(email); // an unconfirmed Studio's first email comes from the platform
     const me = await json<{ studio: { id: string } }>(await api('/api/me', { cookie }));
     return { cookie, studioId: me.studio.id };
   };

@@ -6,7 +6,7 @@ describe('app', () => {
     const { api, post, app, mail, drain } = await boot();
     const r = await post('/api/signup', { email: 'Owner@X.com', studioName: 'Lumen', over18: true }, '');
     expect(r.status).toBe(200); expect(await r.json()).toEqual({ ok: true });
-    await drain(); expect(mail.sent).toHaveLength(1); expect(mail.sent[0]).toMatchObject({ to: 'owner@x.com', fromName: 'Lumen' });
+    await drain(); expect(mail.sent).toHaveLength(1); expect(mail.sent[0]).toMatchObject({ to: 'owner@x.com', fromName: 'OpenGallery' }); // unconfirmed: the platform speaks
     const link = linkFrom(mail.sent[0]!.text);
     const res = await app.request(link, { redirect: 'manual' });
     expect(res.status).toBe(302); expect(res.headers.get('location')).toBe('/');
@@ -24,7 +24,7 @@ describe('app', () => {
     const first = await post('/api/signup', { email: 'a@x.com', studioName: 'S', over18: true }, '');
     const again = await post('/api/signup', { email: 'a@x.com', studioName: 'T', over18: true }, '');
     expect([first.status, await first.json()]).toEqual([again.status, await again.json()]);
-    await drain(); expect(mail.sent.map((m) => m.fromName)).toEqual(['S', 'S']);
+    await drain(); expect(mail.sent.map((m) => [m.to, m.fromName])).toEqual([['a@x.com', 'OpenGallery'], ['a@x.com', 'OpenGallery']]);
   });
   it('serves a client only their project and its previews', async () => {
     const { api, post, json, mail, drain, redeemLatest, signupOwner, seedProject, addCulling } = await boot();

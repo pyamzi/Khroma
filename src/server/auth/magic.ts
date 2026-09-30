@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { sessions } from '../db/schema.js';
+import { sessions, studios } from '../db/schema.js';
 import { newId } from '../ids.js';
 
 // Sessions are looked up by token before any Studio is known, so every function here takes a system transaction.
@@ -25,6 +25,7 @@ export async function redeemMagicLink(db: Db, token: string, now = Date.now()): 
   const sessionToken = randomToken();
   const [session] = await db.update(sessions).set({ loginTokenHash: null, redeemedAt: iso(now), tokenHash: hashToken(sessionToken), expiresAt: iso(now + TTL.session) })
     .where(eq(sessions.id, row.id)).returning();
+  if (session!.kind === 'admin') await db.update(studios).set({ confirmedAt: iso(now) }).where(and(eq(studios.id, session!.studioId), isNull(studios.confirmedAt))); // the owner proved the address
   return { sessionToken, session: session! };
 }
 

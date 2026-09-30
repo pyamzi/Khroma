@@ -35,7 +35,7 @@ let seq = 0;
 export async function makeStudio(db: Db, o: { name?: string; ownerEmail?: string } = {}): Promise<{ studioId: string; ownerId: string }> {
   const studioId = newId(); const ownerId = newId();
   await asSystem(db, async (tx) => {
-    await tx.insert(schema.studios).values({ id: studioId, name: o.name ?? 'Test Studio' });
+    await tx.insert(schema.studios).values({ id: studioId, name: o.name ?? 'Test Studio', confirmedAt: new Date().toISOString() }); // an established Studio
     await tx.insert(schema.users).values({ id: ownerId, studioId, email: o.ownerEmail ?? `owner-${++seq}-${process.pid}@x.com`, role: 'owner' });
   });
   return { studioId, ownerId };

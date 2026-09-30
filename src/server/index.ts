@@ -7,6 +7,7 @@ import { makeEmailHandlers } from './email/send.js';
 import { smtpTransport } from './email/transport.js';
 import { memoryStorage, r2Storage } from './storage.js';
 import { makePreviewHandlers } from './domain/photos.js';
+import { sweepUnconfirmedStudios } from './auth/signup.js';
 
 async function main() {
   const config = loadConfig(process.env);
@@ -17,8 +18,10 @@ async function main() {
   const transport = config.smtpUrl ? smtpTransport(config.smtpUrl, config.emailFrom) : null;
   const handlers = { ...makeEmailHandlers(() => transport, new URL(config.baseUrl).hostname), ...makePreviewHandlers(storage) };
   const stopWorker = startWorker(db, handlers, { intervalMs: 2000 });
+  const sweep = () => void sweepUnconfirmedStudios(db).then((n) => n && console.log(`[sweep] removed ${n} unconfirmed studios`)).catch((e) => console.error('[sweep]', e));
+  const sweeper = setInterval(sweep, 3600_000); sweep();
   const server = serve({ fetch: createApp({ db, config, storage }).fetch, port: config.port }, () => console.log(`[boot] listening on ${config.port}`));
-  const shutdown = () => { stopWorker(); server.close(() => void close().finally(() => process.exit(0))); };
+  const shutdown = () => { stopWorker(); clearInterval(sweeper); server.close(() => void close().finally(() => process.exit(0))); };
   process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown);
 }
 main().catch((e) => { console.error(e); process.exit(1); });
