@@ -1,35 +1,44 @@
-import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
+import { pgTable, text, integer, boolean, jsonb, doublePrecision, bigint, serial, uniqueIndex, index, primaryKey } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
-const now = () => sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`;
+const now = () => sql`to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
-export const users = sqliteTable('users', {
+export const studios = pgTable('studios', {
   id: text('id').primaryKey(),
-  email: text('email').notNull().unique(),
+  name: text('name').notNull(),
+  createdAt: text('created_at').notNull().default(now()),
+});
+
+/** Every tenant row belongs to one Studio; defaults to the transaction's Studio (see db/tenancy.ts). */
+const studioId = () => text('studio_id').notNull().default(sql`current_setting('app.studio_id')`).references(() => studios.id, { onDelete: 'cascade' });
+
+export const users = pgTable('users', {
+  id: text('id').primaryKey(),
+  studioId: studioId(),
+  email: text('email').notNull().unique(), // H1: a Team member belongs to one Studio
   name: text('name').notNull().default(''),
   role: text('role', { enum: ['owner', 'member'] }).notNull(),
   notifyDownloads: text('notify_downloads', { enum: ['off', 'digest', 'each'] }).notNull().default('digest'),
   createdAt: text('created_at').notNull().default(now()),
 });
 
-export const clients = sqliteTable('clients', {
+export const clients = pgTable('clients', {
   id: text('id').primaryKey(),
-  folderPath: text('folder_path').notNull(), // relative to PHOTOS_DIR
-  available: integer('available', { mode: 'boolean' }).notNull().default(true),
+  studioId: studioId(),
   stateVersion: integer('state_version').notNull().default(1),
   name: text('name').notNull(),
-  emails: text('emails', { mode: 'json' }).$type<string[]>().notNull(),
+  emails: jsonb('emails').$type<string[]>().notNull(), // lowercase
+  phone: text('phone').notNull().default(''),
+  notes: text('notes').notNull().default(''),
   stripeCustomerId: text('stripe_customer_id'),
   listmonkSubscriberId: integer('listmonk_subscriber_id'),
   referralCode: text('referral_code'),
-}, (t) => ({ folderIdx: uniqueIndex('clients_folder').on(t.folderPath) }));
+});
 
-export const projects = sqliteTable('projects', {
+export const projects = pgTable('projects', {
   id: text('id').primaryKey(),
+  studioId: studioId(),
   clientId: text('client_id').notNull().references(() => clients.id),
-  folderPath: text('folder_path').notNull(),
-  available: integer('available', { mode: 'boolean' }).notNull().default(true),
-  transferPending: integer('transfer_pending', { mode: 'boolean' }).notNull().default(false),
   stateVersion: integer('state_version').notNull().default(1),
   bookingState: text('booking_state').notNull().default('inquiry'),
   productionState: text('production_state').notNull().default('not_started'),
@@ -37,16 +46,16 @@ export const projects = sqliteTable('projects', {
   date: text('date'),
   currentRound: integer('current_round').notNull().default(1),
   selectionVersion: integer('selection_version').notNull().default(1),
-  lastIndexedAt: text('last_indexed_at'),
-  metadataJson: text('metadata_json', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
-}, (t) => ({ folderIdx: uniqueIndex('projects_folder').on(t.folderPath) }));
+  metadataJson: jsonb('metadata_json').$type<Record<string, unknown>>().notNull(),
+});
 
-export const photos = sqliteTable('photos', {
+export const photos = pgTable('photos', {
   id: text('id').primaryKey(),
+  studioId: studioId(),
   projectId: text('project_id').notNull().references(() => projects.id),
-  relPath: text('rel_path').notNull(), // relative to project folder
+  relPath: text('rel_path').notNull(), // logical path within the project, e.g. raw/a.dng, finals/a.jpg
   draftRelPath: text('draft_rel_path'),
-  live: integer('live', { mode: 'boolean' }).notNull().default(true), // the file at rel_path exists and is what clients see
+  live: boolean('live').notNull().default(true), // the live object exists and is what clients see
   stage: text('stage', { enum: ['culling', 'final'] }).notNull(),
   kind: text('kind', { enum: ['photo', 'video'] }).notNull(),
   sourcePhotoId: text('source_photo_id'),
@@ -57,46 +66,50 @@ export const photos = sqliteTable('photos', {
   sortOrder: integer('sort_order').notNull().default(0),
   section: text('section'),
   editState: text('edit_state', { enum: ['none', 'editing', 'done'] }).notNull().default('none'),
-  missing: integer('missing', { mode: 'boolean' }).notNull().default(false),
-}, (t) => ({ pathIdx: uniqueIndex('photos_project_path').on(t.projectId, t.relPath) }));
+}, (t) => [uniqueIndex('photos_project_path').on(t.projectId, t.relPath)]);
 
-export const picks = sqliteTable('picks', {
+export const picks = pgTable('picks', {
+  studioId: studioId(),
   projectId: text('project_id').notNull().references(() => projects.id),
   photoId: text('photo_id').notNull().references(() => photos.id),
   round: integer('round').notNull(),
   byEmail: text('by_email').notNull(),
   pickedAt: text('picked_at').notNull().default(now()),
   state: text('state', { enum: ['confirmed', 'pending'] }).notNull().default('pending'),
-}, (t) => ({ one: uniqueIndex('picks_project_photo').on(t.projectId, t.photoId) }));
+}, (t) => [uniqueIndex('picks_project_photo').on(t.projectId, t.photoId)]);
 
-export const slotGrants = sqliteTable('slot_grants', {
+export const slotGrants = pgTable('slot_grants', {
   id: text('id').primaryKey(),
+  studioId: studioId(),
   projectId: text('project_id').notNull().references(() => projects.id),
   delta: integer('delta').notNull(),
   reason: text('reason', { enum: ['purchase', 'gift', 'refund', 'release'] }).notNull(),
   reference: text('reference'),
   actor: text('actor').notNull(),
   at: text('at').notNull().default(now()),
-}, (t) => ({ ref: uniqueIndex('slot_grants_reference').on(t.reference) }));
+}, (t) => [uniqueIndex('slot_grants_reference').on(t.reference)]);
 
-export const favorites = sqliteTable('favorites', {
+export const favorites = pgTable('favorites', {
+  studioId: studioId(),
   photoId: text('photo_id').notNull().references(() => photos.id),
   sessionId: text('session_id').notNull(),
-}, (t) => ({ one: uniqueIndex('favorites_one').on(t.photoId, t.sessionId) }));
+}, (t) => [uniqueIndex('favorites_one').on(t.photoId, t.sessionId)]);
 
-export const comments = sqliteTable('comments', {
+export const comments = pgTable('comments', {
   id: text('id').primaryKey(),
+  studioId: studioId(),
   photoId: text('photo_id').notNull().references(() => photos.id),
   author: text('author').notNull(),
   stage: text('stage', { enum: ['culling', 'final'] }).notNull(),
-  x: real('x'), y: real('y'), w: real('w'), h: real('h'), t: real('t'),
+  x: doublePrecision('x'), y: doublePrecision('y'), w: doublePrecision('w'), h: doublePrecision('h'), t: doublePrecision('t'),
   text: text('text').notNull(),
   createdAt: text('created_at').notNull().default(now()),
   resolvedAt: text('resolved_at'),
 });
 
-export const sessions = sqliteTable('sessions', {
+export const sessions = pgTable('sessions', {
   id: text('id').primaryKey(),
+  studioId: studioId(),
   kind: text('kind', { enum: ['client', 'admin', 'guest', 'plugin', 'mcp'] }).notNull(),
   subject: text('subject').notNull(), // email, or guest nickname
   projectId: text('project_id'),
@@ -107,10 +120,11 @@ export const sessions = sqliteTable('sessions', {
   redeemedAt: text('redeemed_at'),
   nickname: text('nickname'),
   createdAt: text('created_at').notNull().default(now()),
-}, (t) => ({ login: uniqueIndex('sessions_login_token').on(t.loginTokenHash), tok: uniqueIndex('sessions_token').on(t.tokenHash) }));
+}, (t) => [uniqueIndex('sessions_login_token').on(t.loginTokenHash), uniqueIndex('sessions_token').on(t.tokenHash)]);
 
-export const invoices = sqliteTable('invoices', {
+export const invoices = pgTable('invoices', {
   id: text('id').primaryKey(),
+  studioId: studioId(),
   projectId: text('project_id').notNull().references(() => projects.id),
   kind: text('kind', { enum: ['deposit', 'balance', 'final', 'extras', 'package', 'adjustment'] }).notNull(),
   amount: integer('amount').notNull(),
@@ -121,15 +135,14 @@ export const invoices = sqliteTable('invoices', {
   paidAt: text('paid_at'),
   paidVia: text('paid_via', { enum: ['stripe', 'manual'] }),
   refundedAmount: integer('refunded_amount').notNull().default(0),
-  needsReview: integer('needs_review', { mode: 'boolean' }).notNull().default(false),
+  needsReview: boolean('needs_review').notNull().default(false),
   voidedAt: text('voided_at'),
   createdAt: text('created_at').notNull().default(now()),
-}, (t) => ({
-  oneOpenExtras: uniqueIndex('invoices_one_open_extras').on(t.projectId).where(sql`kind = 'extras' AND paid_at IS NULL AND voided_at IS NULL`),
-}));
+}, (t) => [uniqueIndex('invoices_one_open_extras').on(t.projectId).where(sql`kind = 'extras' AND paid_at IS NULL AND voided_at IS NULL`)]);
 
-export const reservations = sqliteTable('reservations', {
+export const reservations = pgTable('reservations', {
   id: text('id').primaryKey(),
+  studioId: studioId(),
   projectId: text('project_id').notNull().references(() => projects.id),
   kind: text('kind', { enum: ['call', 'shoot'] }).notNull(),
   adminId: text('admin_id'),
@@ -138,40 +151,44 @@ export const reservations = sqliteTable('reservations', {
   localDate: text('local_date').notNull(),
   state: text('state', { enum: ['held', 'confirmed', 'expired', 'cancelled'] }).notNull(),
   expiresAt: text('expires_at'),
-}, (t) => ({ byDate: index('reservations_date').on(t.localDate, t.state) }));
+}, (t) => [index('reservations_date').on(t.localDate, t.state)]);
 
-export const webhookInbox = sqliteTable('webhook_inbox', {
+/** Provider webhooks arrive before we know the Studio; not tenant-scoped. */
+export const webhookInbox = pgTable('webhook_inbox', {
   provider: text('provider').notNull(),
   eventId: text('event_id').notNull(),
   objectId: text('object_id'),
-  payload: text('payload', { mode: 'json' }).$type<unknown>().notNull(),
+  payload: jsonb('payload').$type<unknown>().notNull(),
   state: text('state', { enum: ['received', 'applied'] }).notNull().default('received'),
   receivedAt: text('received_at').notNull().default(now()),
-}, (t) => ({ one: uniqueIndex('inbox_provider_event').on(t.provider, t.eventId) }));
+}, (t) => [uniqueIndex('inbox_provider_event').on(t.provider, t.eventId)]);
 
-export const jobs = sqliteTable('jobs', {
+export const jobs = pgTable('jobs', {
   id: text('id').primaryKey(),
+  studioId: studioId(),
   kind: text('kind').notNull(),
-  payload: text('payload', { mode: 'json' }).$type<unknown>().notNull(),
+  payload: jsonb('payload').$type<unknown>().notNull(),
   idempotencyKey: text('idempotency_key'),
   attempts: integer('attempts').notNull().default(0),
-  nextAt: integer('next_at').notNull(), // epoch ms
-  leasedUntil: integer('leased_until'),
+  nextAt: bigint('next_at', { mode: 'number' }).notNull(), // epoch ms
+  leasedUntil: bigint('leased_until', { mode: 'number' }),
   state: text('state', { enum: ['pending', 'running', 'done', 'failed', 'needs_review'] }).notNull().default('pending'),
   lastError: text('last_error'),
   createdAt: text('created_at').notNull().default(now()),
-}, (t) => ({ key: uniqueIndex('jobs_idempotency').on(t.idempotencyKey), due: index('jobs_due').on(t.state, t.nextAt) }));
+}, (t) => [uniqueIndex('jobs_idempotency').on(t.studioId, t.idempotencyKey), index('jobs_due').on(t.state, t.nextAt)]);
 
-export const events = sqliteTable('events', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const events = pgTable('events', {
+  id: serial('id').primaryKey(),
+  studioId: studioId(),
   projectId: text('project_id'),
   actor: text('actor').notNull(),
   type: text('type').notNull(),
-  payload: text('payload', { mode: 'json' }).$type<unknown>().notNull().default({}),
+  payload: jsonb('payload').$type<unknown>().notNull().default({}),
   at: text('at').notNull().default(now()),
-}, (t) => ({ byProject: index('events_project').on(t.projectId, t.at) }));
+}, (t) => [index('events_project').on(t.projectId, t.at)]);
 
-export const settings = sqliteTable('settings', {
-  key: text('key').primaryKey(),
-  value: text('value', { mode: 'json' }).$type<unknown>().notNull(),
-});
+export const settings = pgTable('settings', {
+  studioId: studioId(),
+  key: text('key').notNull(),
+  value: jsonb('value').$type<unknown>().notNull(),
+}, (t) => [primaryKey({ columns: [t.studioId, t.key] })]);

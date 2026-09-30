@@ -1,21 +1,29 @@
-import Database from 'better-sqlite3';
-import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { migrate as drizzleMigrate } from 'drizzle-orm/better-sqlite3/migrator';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import * as schema from './schema.js';
 
-export type Db = BetterSQLite3Database<typeof schema>;
+export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
+export const migrationsFolder = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
 
-export function openDb(file: string): Db {
-  const sqlite = new Database(file);
-  if (file !== ':memory:') sqlite.pragma('journal_mode = WAL');
-  sqlite.pragma('foreign_keys = ON');
-  sqlite.pragma('busy_timeout = 5000');
-  return drizzle(sqlite, { schema });
-}
-
-export function migrate(db: Db): void {
-  const here = dirname(fileURLToPath(import.meta.url));
-  drizzleMigrate(db, { migrationsFolder: join(here, 'migrations') });
+/**
+ * `pglite://memory` or `pglite://<dir>` → in-process PGlite (tests, local dev); anything else → node-postgres pool.
+ * The connection stays the owner role; every app transaction drops to og_app itself (db/tenancy.ts), which is pooler-safe.
+ */
+export async function openDb(url: string, o: { migrate?: boolean } = {}): Promise<{ db: Db; close(): Promise<void> }> {
+  if (url.startsWith('pglite:')) {
+    const { PGlite } = await import('@electric-sql/pglite');
+    const { drizzle } = await import('drizzle-orm/pglite');
+    const dir = url.slice('pglite://'.length);
+    const pg = new PGlite(dir === 'memory' ? undefined : dir);
+    const db = drizzle(pg, { schema });
+    if (o.migrate) await (await import('drizzle-orm/pglite/migrator')).migrate(db, { migrationsFolder });
+    return { db: db as unknown as Db, close: () => pg.close() };
+  }
+  const { Pool } = (await import('pg')).default;
+  const { drizzle } = await import('drizzle-orm/node-postgres');
+  const pool = new Pool({ connectionString: url, max: 10 });
+  const db = drizzle(pool, { schema });
+  if (o.migrate) await (await import('drizzle-orm/node-postgres/migrator')).migrate(db, { migrationsFolder });
+  return { db: db as unknown as Db, close: () => pool.end() };
 }

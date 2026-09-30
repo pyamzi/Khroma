@@ -23,19 +23,20 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
-    "better-sqlite3": "^11.5.0",
-    "chokidar": "^4.0.1",
+    "aws4fetch": "^1.0.20",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.6.0",
     "nodemailer": "^10.0.8",
+    "pg": "^8.23.0",
     "sharp": "^0.35.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.7.0",
     "@types/nodemailer": "^7.0.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^6.1.1",

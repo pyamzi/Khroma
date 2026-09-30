@@ -1,26 +1,19 @@
 {
   "version": "7",
-  "dialect": "sqlite",
+  "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
-      "version": "6",
-      "when": 1789168671932,
-      "tag": "0000_gray_loa",
+      "version": "7",
+      "when": 1790748890484,
+      "tag": "0000_schema",
       "breakpoints": true
     },
     {
       "idx": 1,
-      "version": "6",
-      "when": 1789180433211,
-      "tag": "0001_fair_ted_forrester",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1789180634898,
-      "tag": "0002_kind_hulk",
+      "version": "7",
+      "when": 1790748890810,
+      "tag": "0001_tenancy",
       "breakpoints": true
     }
   ]

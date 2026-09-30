@@ -2,13 +2,14 @@ import { eq } from 'drizzle-orm';
 import type { Db } from './client.js';
 import { settings } from './schema.js';
 
-export function getSetting<T = unknown>(db: Db, key: string): T | null {
-  const row = db.select().from(settings).where(eq(settings.key, key)).get();
+// Scoped to the transaction's Studio by row-level security.
+export async function getSetting<T = unknown>(db: Db, key: string): Promise<T | null> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, key)).limit(1);
   return row ? (row.value as T) : null;
 }
-export function setSetting(db: Db, key: string, value: unknown): void {
-  db.insert(settings).values({ key, value }).onConflictDoUpdate({ target: settings.key, set: { value } }).run();
+export async function setSetting(db: Db, key: string, value: unknown): Promise<void> {
+  await db.insert(settings).values({ key, value }).onConflictDoUpdate({ target: [settings.studioId, settings.key], set: { value } });
 }
-export function deleteSetting(db: Db, key: string): void {
-  db.delete(settings).where(eq(settings.key, key)).run();
+export async function deleteSetting(db: Db, key: string): Promise<void> {
+  await db.delete(settings).where(eq(settings.key, key));
 }
