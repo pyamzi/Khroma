@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { invoices, projects, clients, jobs } from '../src/server/db/schema.js';
 import { getSetting, setSetting } from '../src/server/db/settings.js';
 import { withStudio } from '../src/server/db/tenancy.js';
-import { testDb, makeStudio, pgFail } from './helpers.js';
+import { join } from 'node:path';
+import { openDb } from '../src/server/db/client.js';
+import { checkTenancy } from '../src/server/db/check.js';
+import { testDb, makeStudio, pgFail, tmpDir } from './helpers.js';
 import { pgCode } from '../src/server/db/errors.js';
 
 describe('database', () => {
@@ -42,5 +45,9 @@ describe('database', () => {
     expect(await withStudio(db, a.studioId, (tx) => getSetting(tx, 'studio'))).toEqual({ tz: 'UTC' });
     expect(await withStudio(db, b.studioId, (tx) => getSetting(tx, 'studio'))).toBeNull();
     expect(await withStudio(db, a.studioId, (tx) => getSetting(tx, 'missing'))).toBeNull();
+  });
+  it('opens an on-disk PGlite database in a directory that does not exist yet', async () => {
+    const { db, close } = await openDb(`pglite://${join(await tmpDir(), '.data', 'dev')}`, { migrate: true });
+    try { expect(await checkTenancy(db)).toEqual([]); } finally { await close(); }
   });
 });

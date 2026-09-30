@@ -1,6 +1,7 @@
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { mkdir } from 'node:fs/promises';
 import * as schema from './schema.js';
 
 export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
@@ -15,6 +16,7 @@ export async function openDb(url: string, o: { migrate?: boolean } = {}): Promis
     const { PGlite } = await import('@electric-sql/pglite');
     const { drizzle } = await import('drizzle-orm/pglite');
     const dir = url.slice('pglite://'.length);
+    if (dir !== 'memory') await mkdir(dir, { recursive: true }); // PGlite creates the data dir but not its parents
     const pg = new PGlite(dir === 'memory' ? undefined : dir);
     const db = drizzle(pg, { schema });
     if (o.migrate) await (await import('drizzle-orm/pglite/migrator')).migrate(db, { migrationsFolder });
