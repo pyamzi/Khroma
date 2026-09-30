@@ -1,4 +1,3 @@
-import { open, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { extname } from 'node:path';
 
@@ -12,18 +11,13 @@ const EXT: Record<string, Sniffed> = {
   '.m4a': { kind: 'audio', format: 'm4a' }, '.wav': { kind: 'audio', format: 'wav' },
 };
 
-async function head(file: string, n = 16): Promise<Buffer> {
-  const fh = await open(file, 'r');
-  try { const b = Buffer.alloc(n); const { bytesRead } = await fh.read(b, 0, n, 0); return b.subarray(0, bytesRead); }
-  finally { await fh.close(); }
-}
 const isTiff = (b: Buffer) => b.length >= 4 && ((b[0] === 0x49 && b[1] === 0x49 && b[2] === 0x2a && b[3] === 0) || (b[0] === 0x4d && b[1] === 0x4d && b[2] === 0 && b[3] === 0x2a));
 const isFtyp = (b: Buffer, brands: string[]) => b.length >= 12 && b.subarray(4, 8).toString() === 'ftyp' && brands.some((x) => b.subarray(8, 12).toString().startsWith(x));
 
-/** Extension allowlist checked against file signature. Null means unsupported or mismatched; never serve it. */
-export async function sniff(file: string): Promise<Sniffed | null> {
-  const ext = extname(file).toLowerCase();
-  const b = await head(file);
+/** Extension allowlist checked against the file signature. Null means unsupported or mismatched; never store or serve it. */
+export function sniffBytes(bytes: Uint8Array, name: string): Sniffed | null {
+  const ext = extname(name).toLowerCase();
+  const b = Buffer.from(bytes.buffer, bytes.byteOffset, Math.min(16, bytes.byteLength));
   if (b.length < 4) return null;
   if (RAW_EXT.has(ext)) {
     const ok = isTiff(b) || (ext === '.cr3' && isFtyp(b, ['crx'])) || (ext === '.raf' && b.subarray(0, 8).toString() === 'FUJIFILM') || (ext === '.rw2' && b[0] === 0x49 && b[1] === 0x49 && b[2] === 0x55);
@@ -45,12 +39,4 @@ export async function sniff(file: string): Promise<Sniffed | null> {
   return checks[want.format]() ? want : null;
 }
 
-/** ponytail: sha256 of size + first/last 64 KiB, not the whole file; hashing 5,000 RAWs on a NAS in full is too slow. Upgrade to a full hash if collisions ever matter. */
-export async function quickHash(file: string): Promise<string> {
-  const { size } = await stat(file); const fh = await open(file, 'r');
-  try {
-    const n = 64 * 1024; const a = Buffer.alloc(Math.min(n, size)); const z = Buffer.alloc(Math.min(n, size));
-    await fh.read(a, 0, a.length, 0); await fh.read(z, 0, z.length, Math.max(0, size - z.length));
-    return createHash('sha256').update(String(size)).update(a).update(z).digest('hex');
-  } finally { await fh.close(); }
-}
+export function sha256(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex'); }
