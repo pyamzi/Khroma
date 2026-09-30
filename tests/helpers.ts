@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, onTestFinished } from 'vitest';
+import { sql } from 'drizzle-orm';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
@@ -44,4 +45,15 @@ export async function makeStudio(db: Db, o: { name?: string; ownerEmail?: string
 export async function pgFail(p: Promise<unknown>): Promise<string> {
   const e = await p.then(() => { throw new Error('expected a database error, got success'); }, (err: unknown) => err);
   return pgMessage(e);
+}
+
+/** Pins the whole test connection to one Studio as og_app, so domain functions can be called with `db` directly. */
+export async function pinStudio(db: Db, studioId: string): Promise<void> {
+  await db.execute(sql`set role og_app`);
+  await db.execute(sql`select set_config('app.studio_id', ${studioId}, false)`);
+}
+/** A fresh database pinned to a new Studio (owner owner@x). */
+export async function studioTestDb(o: { name?: string; ownerEmail?: string } = {}) {
+  const db = await testDb(); const s = await makeStudio(db, { ownerEmail: 'owner@x', ...o }); await pinStudio(db, s.studioId);
+  return { db, ...s };
 }
