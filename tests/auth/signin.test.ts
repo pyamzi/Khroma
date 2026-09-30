@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clients } from '../../src/server/db/schema.js';
+import { clients, jobs } from '../../src/server/db/schema.js';
 import { asSystem, withStudio } from '../../src/server/db/tenancy.js';
 import { requestSignIn } from '../../src/server/auth/signin.js';
 import { redeemMagicLink } from '../../src/server/auth/magic.js';
@@ -27,6 +27,17 @@ describe('sign-in across Studios', () => {
     const db = await testDb(); const a = await makeStudio(db, { ownerEmail: 'o@x.com' });
     await withStudio(db, a.studioId, (tx) => tx.insert(clients).values({ id: 'c', name: 'O', emails: ['o@x.com'] }));
     expect(await asSystem(db, (tx) => requestSignIn(tx, { email: 'o@x.com', baseUrl: base }))).toBe(1);
+    const [m] = await queuedMail(db);
+    expect((await asSystem(db, (tx) => redeemMagicLink(tx, m!.token!)))!.session.kind).toBe('admin');
+  });
+});
+
+describe('sign-in tokens at rest', () => {
+  it('a queued sign-in email holds no token; the link is minted when the email is sent', async () => {
+    const db = await testDb(); await makeStudio(db, { ownerEmail: 'o@x.com' });
+    await asSystem(db, (tx) => requestSignIn(tx, { email: 'o@x.com', baseUrl: base }));
+    const [job] = await asSystem(db, (tx) => tx.select().from(jobs));
+    expect(JSON.stringify(job!.payload)).not.toMatch(/\/auth\//);
     const [m] = await queuedMail(db);
     expect((await asSystem(db, (tx) => redeemMagicLink(tx, m!.token!)))!.session.kind).toBe('admin');
   });
