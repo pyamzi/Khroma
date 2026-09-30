@@ -24,7 +24,7 @@
 
 - Node 22, TypeScript `strict`, ESM with `.js` import suffixes (the existing convention). Keep zod 3 (do not upgrade).
 - Dependencies: add `pg ^8.23.0`, `aws4fetch ^1.0.20`; dev add `@electric-sql/pglite ^0.5.8`, `@types/pg ^8.23.1`. Remove `better-sqlite3`, `@types/better-sqlite3`, `chokidar`. PGlite is only imported dynamically, never in the production path.
-- The app connects to Postgres as role `og_app` (non-superuser, `NOLOGIN`, reached with `SET ROLE og_app`). Migrations run as the database owner.
+- The app works as role `og_app` (non-superuser, no BYPASSRLS, `NOLOGIN`). Every app transaction starts with `SET LOCAL ROLE og_app`, never a connection-level `SET ROLE`, because Neon's pooled URL is PgBouncer in transaction mode and session state does not survive. Migrations run as the database owner.
 - Setting names: `app.studio_id` (the current Studio) and `app.system` (`'on'` for cross-Studio operations). Both are set with `set_config(name, value, true)`, so they end with the transaction.
 - Timestamps stay ISO-8601 strings in `text` columns (`2026-09-30T12:34:56.789Z`), default `to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`, so string comparisons in the code keep working.
 - Storage keys: `s/<studioId>/p/<photoId>/<variant>`, variants `original`, `draft`, `preview`, `preview.draft`, `thumb`, `thumb.draft`. Preview long edge 2048 px, thumb 400 px (unchanged).
@@ -72,8 +72,8 @@ Every ported test case is kept unless this plan names it for deletion. Test file
 **Interfaces:**
 - Produces:
   - `type Db = PgDatabase<PgQueryResultHKT, typeof schema>` from `db/client.ts` (transactions are assignable to it).
-  - `openDb(url: string, o?: { migrate?: boolean }): Promise<{ db: Db; close(): Promise<void> }>`. A `url` of `pglite://memory` or `pglite://<dir>` uses PGlite (dynamic import). Any `postgres://` URL uses a `pg.Pool` whose `connect` event runs `SET ROLE og_app`. With `migrate: true`, migrations run as owner before the role is set.
-  - `withStudio<T>(db: Db, studioId: string, fn: (tx: Db) => Promise<T>): Promise<T>` and `asSystem<T>(db: Db, fn: (tx: Db) => Promise<T>): Promise<T>` in `db/tenancy.ts`.
+  - `openDb(url: string, o?: { migrate?: boolean }): Promise<{ db: Db; close(): Promise<void> }>`. A `url` of `pglite://memory` or `pglite://<dir>` uses PGlite (dynamic import). Any `postgres://` URL uses a plain `pg.Pool` (no connect hook). With `migrate: true`, migrations run as owner first.
+  - `withStudio<T>(db: Db, studioId: string, fn: (tx: Db) => Promise<T>): Promise<T>`, `asSystem<T>(db, fn)`, and `anonTx<T>(db, fn)` in `db/tenancy.ts`.
   - `getSetting<T>(db, key): Promise<T | null>`, `setSetting(db, key, value): Promise<void>`, `deleteSetting(db, key): Promise<void>`, all scoped by RLS.
   - `newId(): string` in `src/server/ids.ts`.
   - Test helpers: `testDb(): Promise<Db>` and `makeStudio(db: Db, o?: { name?: string; ownerEmail?: string }): Promise<{ studioId: string; ownerId: string }>`.
@@ -95,15 +95,15 @@ it('each Studio sees and changes only its own rows', async () => {
 it('no Studio set: reads nothing, cannot insert', async () => {
   const db = await testDb(); const a = await makeStudio(db);
   await withStudio(db, a.studioId, (tx) => tx.insert(clients).values({ id: 'ca', name: 'A', emails: [] }));
-  expect(await db.transaction((tx) => tx.select().from(clients))).toEqual([]);
-  await expect(db.transaction((tx) => tx.insert(clients).values({ id: 'y', name: 'n', emails: [] }))).rejects.toThrow();
+  expect(await anonTx(db, (tx) => tx.select().from(clients))).toEqual([]);
+  await expect(anonTx(db, (tx) => tx.insert(clients).values({ id: 'y', name: 'n', emails: [] }))).rejects.toThrow();
 });
 it('asSystem sees every Studio', async () => { /* two studios, one client each → asSystem select returns 2 */ });
 it('every table with a studio_id column has forced RLS and a policy; studios too', async () => {
   // query pg_class / pg_policies as owner via asSystem: for each table in information_schema.columns where column_name = 'studio_id', plus 'studios':
   // expect relrowsecurity = true, relforcerowsecurity = true, and at least one row in pg_policies
 });
-it('the app role is not a superuser', async () => { /* select rolsuper from pg_roles where rolname = current_user → false; current_user = 'og_app' */ });
+it('app transactions run as og_app, which cannot bypass RLS', async () => { /* inside asSystem and withStudio: current_user = 'og_app'; pg_roles og_app: rolsuper = false, rolbypassrls = false */ });
 ```
 
 `tests/db.test.ts`, ported: keep "one unpaid extras invoice per project", "duplicate job idempotency keys" (now duplicate within one Studio; the same key in two Studios is allowed; add that assertion), "project whose client does not exist" (`/foreign key/i`), "stores settings" (scoped: Studio B does not see A's setting). Delete "enables foreign keys". Add: `jobs.next_at` stores `Date.now()` exactly.
@@ -139,13 +139,13 @@ ALTER TABLE studios ENABLE ROW LEVEL SECURITY; ALTER TABLE studios FORCE ROW LEV
 CREATE POLICY tenant ON studios USING (id = current_setting('app.studio_id', true) OR current_setting('app.system', true) = 'on') WITH CHECK (id = current_setting('app.studio_id', true) OR current_setting('app.system', true) = 'on');
 ```
 
-- [ ] **Step 6: Implement `openDb`, `withStudio`, `asSystem`, settings, `newId`.** `withStudio` opens a transaction, runs `select set_config('app.studio_id', ${studioId}, true)`, then calls `fn(tx)`; `asSystem` does the same with `set_config('app.system', 'on', true)`. Test helpers:
+- [ ] **Step 6: Implement `openDb`, `withStudio`, `asSystem`, settings, `newId`.** `withStudio` opens a transaction, runs `SET LOCAL ROLE og_app` and `select set_config('app.studio_id', ${studioId}, true)`, then calls `fn(tx)`; `asSystem` does the same with `set_config('app.system', 'on', true)`. Also export `anonTx(db, fn)`, which runs only `SET LOCAL ROLE og_app` (the no-session request path). The Task 1 no-Studio test uses `anonTx`, not `db.transaction`. Test helpers:
 
 ```ts
 let template: Promise<PGlite> | undefined; // one migrated database per test worker, cloned per test (~90 ms)
 export async function testDb(): Promise<Db> {
   template ??= (async () => { const pg = new PGlite(); await migratePglite(pg); return pg; })();
-  const pg = await (await template).clone(); await pg.exec('SET ROLE og_app');
+  const pg = await (await template).clone(); onTestFinished(() => pg.close()); // no leaked WASM instances
   return drizzle(pg, { schema });
 }
 ```
@@ -376,7 +376,7 @@ export async function testDb(): Promise<Db> {
   - `isolation.test.ts` covers Review Focus 2, 3, and 5:
     - The route sweep seeds Studios A and B with a client, project, culling photo (via `addPhoto` plus a drained preview job), comment, and plugin token each. For every route in `app.routes` whose path has `:id`, `:photoId`, or `:token` (except `/auth/:token`), it substitutes A's ids and requests with B's owner cookie (and B's plugin bearer for `/api/plugin/*`). It asserts the status is 401, 403, or 404, and that the body contains none of A's ids or names.
     - Unauthenticated: `GET /api/projects` returns `[]` or 401, and nothing from A appears.
-    - Rollback: build a `new Hono<AppEnv>()` with the same middleware plus a test route that inserts an `events` row and then throws. The response is 500, and a fresh `withStudio` read finds no such event.
+    - Rollback: build a `new Hono<AppEnv>()` with the same middleware and the same `onError` as `createApp`, plus a test route that inserts an `events` row and then throws. The response is 500, and a fresh `withStudio` read finds no such event.
   - `app.test.ts`, rewritten:
     - Signup, then redeem the emailed link, which yields an owner cookie with `/api/me` returning `isAdmin: true` and `studio.name`.
     - The link works only once.
@@ -399,7 +399,8 @@ export function requestTx(root: Db): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const run = async (tx: Db) => { c.set('db', tx); await next(); if (c.error) throw c.error; }; // rethrow so a failed request rolls back
     const s = c.get('session');
-    if (s) await withStudio(root, s.studioId, run); else await root.transaction(run);
+    try { if (s) await withStudio(root, s.studioId, run); else await anonTx(root, run); }
+    catch (e) { if (e !== c.error) throw e; } // onError already set the response; don't run it twice
   };
 }
 ```
@@ -479,7 +480,7 @@ grep -rn -E "folderPath|/api/files|/api/issues|approve-transfer|setup-token|list
     - `[[vm]] size = "shared-cpu-1x"`, `memory = "2gb"`.
     - `[checks]` hitting `/healthz`.
 - [ ] **Step 2: Write `scripts/check-tenancy.ts`.** It connects to `DATABASE_URL` and checks that:
-  - `og_app` exists and is not a superuser.
+  - `og_app` exists with `rolsuper = false` and `rolbypassrls = false`, and inside a `withStudio` transaction on the pooled URL `current_user = 'og_app'`.
   - Every table with `studio_id`, plus `studios`, has RLS enabled and forced, with a policy.
   - Inside a transaction it rolls back, two temporary Studios cannot see each other's rows.
 
@@ -493,7 +494,7 @@ grep -rn -E "folderPath|/api/files|/api/issues|approve-transfer|setup-token|list
   - Stop and ask the owner if any item below is missing. Do not create accounts.
   - Owner steps:
     - `fly auth login`.
-    - Create a Neon project in `aws-us-east-2` and copy its pooled `DATABASE_URL`.
+    - Create a Neon project in `aws-us-east-2` and copy its pooled `DATABASE_URL`. The migration runs `CREATE ROLE`, so the connecting role needs CREATEROLE (console-created roles have it through `neon_superuser`). If the release command fails on `CREATE ROLE`, this is the cause.
     - Create an R2 bucket `opengallery-media` and an R2 API token scoped to it.
     - Provide the transactional email provider's SMTP URL and a verified `EMAIL_FROM`.
   - Then run:
