@@ -9,7 +9,7 @@ export function Dashboard() {
   const [d, setD] = useState<D | null>(null);
   useEffect(() => { void api<D>('/api/dashboard').then(setD); }, []);
   if (!d) return <Shell section="/admin" title="Dashboard"><Empty>Loading…</Empty></Shell>;
-  const go = (i: { projectId: string; reason: string }) => i.projectId ? navigate(`/admin/projects/${i.projectId}`) : navigate(i.reason === 'issues' ? '/admin/files' : '/admin/settings#jobs');
+  const go = (i: { projectId: string; reason: string }) => i.projectId ? navigate(`/admin/projects/${i.projectId}`) : navigate('/admin/settings#jobs');
   return (
     <Shell section="/admin" title="Dashboard">
       <div className="grid gap-4 md:grid-cols-2">

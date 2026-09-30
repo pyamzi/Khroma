@@ -1,48 +1,47 @@
 import { serve } from '@hono/node-server';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import sharp from 'sharp';
+import { eq } from 'drizzle-orm';
 import { loadConfig } from '../../src/server/config.js';
-import { openDb, migrate } from '../../src/server/db/client.js';
+import { openDb } from '../../src/server/db/client.js';
+import { asSystem, withStudio } from '../../src/server/db/tenancy.js';
+import { users } from '../../src/server/db/schema.js';
 import { createApp } from '../../src/server/app.js';
-import { createSetupToken, completeSetup, markSetupComplete } from '../../src/server/auth/bootstrap.js';
+import { signup } from '../../src/server/auth/signup.js';
 import { startWorker } from '../../src/server/jobs/worker.js';
+import { runOnce } from '../../src/server/jobs/queue.js';
 import { makeEmailHandlers } from '../../src/server/email/send.js';
 import { memoryTransport, type Mail } from '../../src/server/email/transport.js';
-import { rescan } from '../../src/server/fs/index.js';
-import { indexProjectMedia, makePreviewHandlers } from '../../src/server/fs/photos.js';
-import { runOnce } from '../../src/server/jobs/queue.js';
-import { writeJsonAtomic } from '../../src/server/fs/json.js';
-import { defaultClientJson, defaultProjectJson } from '../../src/server/fs/schemas.js';
+import { memoryStorage } from '../../src/server/storage.js';
+import { createClient, createProject } from '../../src/server/domain/admin.js';
+import { addPhoto, makePreviewHandlers } from '../../src/server/domain/photos.js';
 
-/** The real app in-process: memory mail, one client with three RAWs and an allowance of 2. Serves dist/web. */
+/** The real app in-process on in-memory Postgres: Studio "E2E Studio" (owner@x.com), client sarah@x.com, three RAWs, allowance 2. Serves dist/web. */
 export async function startTestServer() {
-  const photosDir = await mkdtemp(join(tmpdir(), 'og-e2e-')); await mkdir(join(photosDir, 'Clients'), { recursive: true });
   const port = 3300 + Math.floor(Math.random() * 500); const baseUrl = `http://127.0.0.1:${port}`;
-  const config = loadConfig({ DATA_DIR: photosDir, PHOTOS_DIR: photosDir, BASE_URL: baseUrl, SESSION_SECRET: 'x'.repeat(32) });
-  const db = openDb(':memory:'); migrate(db);
-  const mail = memoryTransport();
-  const handlers = { ...makeEmailHandlers(() => mail, '127.0.0.1'), ...makePreviewHandlers(photosDir) };
-  const token = createSetupToken(db);
-  completeSetup(db, { token, ownerEmail: 'owner@x.com', studioName: 'E2E Studio', email: { type: 'smtp', url: 'smtp://u:p@h:587', from: 'S <s@x>' }, baseUrl, secret: config.sessionSecret });
-  markSetupComplete(db);
-  const c = defaultClientJson('Smith'); c.emails = ['sarah@x.com'];
-  const p = defaultProjectJson('Wedding'); p.allowance = { included: 2, extraPrice: 1500, slots: 2 };
-  await mkdir(join(photosDir, 'Clients/Smith/Wedding/raw'), { recursive: true });
-  await writeJsonAtomic(join(photosDir, 'Clients/Smith/client.json'), c);
-  await writeJsonAtomic(join(photosDir, 'Clients/Smith/Wedding/project.json'), p);
-  for (const [i, n] of ['a', 'b', 'c'].entries()) await sharp({ create: { width: 600, height: 400, channels: 3, background: ['#c33', '#3c3', '#33c'][i]! } }).tiff().toFile(join(photosDir, `Clients/Smith/Wedding/raw/${n}.dng`));
-  await rescan(db, photosDir); await indexProjectMedia(db, photosDir, p.id!);
-  while ((await runOnce(db, handlers)) === 'ran') { /* previews */ }
-  mail.sent.length = 0; // drop the setup email
+  const config = loadConfig({ DATABASE_URL: 'pglite://memory', BASE_URL: baseUrl });
+  const { db, close } = await openDb(config.databaseUrl, { migrate: true });
+  const storage = memoryStorage(); const mail = memoryTransport();
+  const handlers = { ...makeEmailHandlers(() => mail, '127.0.0.1'), ...makePreviewHandlers(storage) };
+  await asSystem(db, (tx) => signup(tx, { email: 'owner@x.com', studioName: 'E2E Studio', baseUrl }));
+  const [{ studioId }] = (await asSystem(db, (tx) => tx.select({ studioId: users.studioId }).from(users).where(eq(users.email, 'owner@x.com')))) as [{ studioId: string }];
+  const projectId = await withStudio(db, studioId, async (tx) => {
+    const c = await createClient(tx, { name: 'Smith', emails: ['sarah@x.com'], actor: 'seed' });
+    const p = await createProject(tx, { clientId: c.id, title: 'Wedding', included: 2, extraPrice: 1500, actor: 'seed' });
+    for (const [i, n] of ['a', 'b', 'c'].entries()) {
+      const bytes = await sharp({ create: { width: 600, height: 400, channels: 3, background: ['#c33', '#3c3', '#33c'][i]! } }).tiff().toBuffer();
+      await addPhoto(tx, storage, { projectId: p.id, relPath: `raw/${n}.dng`, stage: 'culling', bytes, name: `${n}.dng` });
+    }
+    return p.id;
+  });
+  while ((await runOnce(db, handlers)) === 'ran') { /* previews and the signup email */ }
+  mail.sent.length = 0; // drop the signup email
   const stopWorker = startWorker(db, handlers, { intervalMs: 200 });
-  const server = serve({ fetch: createApp({ db, config, photosDir, webRoot: './dist/web' }).fetch, port });
+  const server = serve({ fetch: createApp({ db, config, storage, webRoot: './dist/web' }).fetch, port });
   const signInLink = async (email: string): Promise<string> => {
     const before = mail.sent.length;
     await fetch(`${baseUrl}/api/auth/request`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: JSON.stringify({ email }) });
     for (let i = 0; i < 50 && mail.sent.length <= before; i++) await new Promise((r) => setTimeout(r, 100));
     return mail.sent[before]!.text.match(/https?:\/\/[^\s]+\/auth\/[A-Za-z0-9_-]+/)![0];
   };
-  return { baseUrl, projectId: p.id!, db, mailbox: (): Mail[] => mail.sent, signInLink, async stop() { stopWorker(); server.close(); await rm(photosDir, { recursive: true, force: true }); } };
+  return { baseUrl, projectId, studioId, db, mailbox: (): Mail[] => mail.sent, signInLink, async stop() { stopWorker(); await new Promise((r) => server.close(r)); await close(); } };
 }

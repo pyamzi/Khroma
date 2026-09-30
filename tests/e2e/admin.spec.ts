@@ -6,7 +6,22 @@ test.beforeAll(async () => { srv = await startTestServer(); });
 test.afterAll(async () => { await srv.stop(); });
 test.use({ viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1, userAgent: undefined });
 
-test('owner runs the studio: dashboard, clients, files, project detail, settings, board', async ({ page }) => {
+test('a new photographer signs up and lands on their empty dashboard', async ({ page }) => {
+  await page.goto(srv.baseUrl + '/signin');
+  await page.getByRole('link', { name: 'Create a studio' }).click();
+  await page.getByLabel('Studio name').fill('Fresh Studio'); await page.getByLabel('Email').fill('fresh@x.com');
+  await page.getByLabel('I am 18 or older').check();
+  await page.getByRole('button', { name: 'Create studio' }).click();
+  await expect(page.getByText('Check your email')).toBeVisible();
+  await expect.poll(() => srv.mailbox().filter((m) => m.to === 'fresh@x.com').length).toBe(1);
+  await page.goto(srv.mailbox().find((m) => m.to === 'fresh@x.com')!.text.match(/https?:\/\/[^\s]+\/auth\/[A-Za-z0-9_-]+/)![0]);
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expect(page.getByText('Nothing waiting. Nice.')).toBeVisible();
+  await page.getByRole('button', { name: /Board$/ }).first().click();
+  await expect(page.getByTestId('card')).toHaveCount(0); // another Studio's Wedding is not here
+});
+
+test('owner runs the studio: dashboard, clients, project detail, settings, board', async ({ page }) => {
   await page.goto(await srv.signInLink('owner@x.com'));
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
   await expect(page.getByText('Nothing waiting. Nice.')).toBeVisible();
@@ -30,23 +45,6 @@ test('owner runs the studio: dashboard, clients, files, project detail, settings
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Headshots 2026' })).toBeVisible();
 
-  // Files: inside the new project, folder, upload, trash, restore
-  await page.getByRole('button', { name: 'More actions' }).click();
-  await page.getByRole('button', { name: 'Open folder' }).click();
-  await expect(page.getByRole('heading', { name: 'Files' })).toBeVisible();
-  page.once('dialog', (d) => d.accept('Inspiration'));
-  await page.getByRole('button', { name: 'New folder' }).click();
-  await expect(page.getByText('Inspiration')).toBeVisible();
-  await page.locator('input[type=file]').setInputFiles({ name: 'moodboard.txt', mimeType: 'text/plain', buffer: Buffer.from('warm tones') });
-  await expect(page.getByText('moodboard.txt')).toBeVisible();
-  await page.getByRole('button', { name: 'Actions for moodboard.txt' }).click();
-  await page.getByRole('button', { name: 'Move to Trash' }).click();
-  await expect(page.getByText('moodboard.txt')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Trash' }).click();
-  await expect(page.getByText(/moodboard\.txt/)).toBeVisible();
-  await page.getByRole('button', { name: 'Restore' }).click();
-  await expect(page.getByText('Restored')).toBeVisible();
-
   // Seeded Wedding project: three culling tiles; a comment posted via the API can be resolved in the viewer
   await page.goto(`${srv.baseUrl}/admin/projects/${srv.projectId}`);
   await expect(page.getByTestId('admin-tile')).toHaveCount(3);
@@ -60,16 +58,13 @@ test('owner runs the studio: dashboard, clients, files, project detail, settings
   await page.getByRole('tab', { name: 'Activity' }).click();
   await expect(page.getByText('resolved a comment')).toBeVisible();
 
-  // Settings: invite a member, send a delivery test (memory transport → done)
+  // Settings: invite a member
   await page.getByRole('button', { name: 'Settings' }).first().click();
   await page.getByLabel('Invite by email').fill('sam@x.com');
   await page.getByRole('button', { name: 'Invite' }).click();
   await expect(page.getByText('sam@x.com')).toBeVisible();
-  await page.getByRole('button', { name: 'Send test email' }).click();
-  await expect(page.getByTestId('email-test')).toContainText('done', { timeout: 10_000 });
 
   // Board: the Wedding card sits in the Culling column
-  await page.getByRole('button', { name: 'Files' }).first().click();
-  await page.getByRole('tab', { name: 'Board' }).click();
+  await page.getByRole('button', { name: /Board$/ }).first().click();
   await expect(page.getByTestId('card').filter({ hasText: 'Wedding' })).toBeVisible();
 });

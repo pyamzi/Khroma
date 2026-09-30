@@ -13,6 +13,7 @@ export function SignIn() {
           <input required type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)}
             className="w-full rounded-xl border border-neutral-300 px-3 py-3 text-base dark:border-neutral-700 dark:bg-neutral-900" />
           <button className="w-full rounded-xl bg-black py-3 text-base font-medium text-white dark:bg-white dark:text-black">Email me a link</button>
+          <p className="text-center text-sm"><a href="/signup" className="text-blue-600">Create a studio</a></p>
         </form>)}
     </main>);
 }

@@ -1,41 +1,24 @@
 import { serve } from '@hono/node-server';
-import { join } from 'node:path';
-import { mkdir } from 'node:fs/promises';
 import { loadConfig } from './config.js';
-import { openDb, migrate } from './db/client.js';
+import { openDb } from './db/client.js';
 import { createApp } from './app.js';
-import { rescan } from './fs/index.js';
-import { indexProjectMedia, makePreviewHandlers } from './fs/photos.js';
-import { startWatcher } from './fs/watcher.js';
 import { startWorker } from './jobs/worker.js';
 import { makeEmailHandlers } from './email/send.js';
-import { resolveTransport } from './email/transport.js';
-import { projects } from './db/schema.js';
-import { filesHandlers } from './domain/files.js';
-import { enqueue } from './jobs/queue.js';
+import { smtpTransport } from './email/transport.js';
+import { memoryStorage, r2Storage } from './storage.js';
+import { makePreviewHandlers } from './domain/photos.js';
 
 async function main() {
   const config = loadConfig(process.env);
-  await mkdir(config.dataDir, { recursive: true });
-  await mkdir(join(config.photosDir, 'Clients'), { recursive: true });
-  const db = openDb(join(config.dataDir, 'opengallery.db')); migrate(db);
-
-  const purge = filesHandlers(config.photosDir);
-  const handlers = { ...makeEmailHandlers(() => resolveTransport(db, config), new URL(config.baseUrl).hostname), ...makePreviewHandlers(config.photosDir),
-    trash_purge: async (p: unknown, ctx: { db: typeof db; jobId: string }) => { await purge.trash_purge!(p, ctx); scheduleTrashPurge(); } };
-  const scheduleTrashPurge = () => { const day = new Date(Date.now() + 864e5).toISOString().slice(0, 10); enqueue(db, { kind: 'trash_purge', payload: {}, idempotencyKey: `trash_purge:${day}`, runAt: Date.parse(`${day}T03:00:00Z`) }); };
-  enqueue(db, { kind: 'trash_purge', payload: {}, idempotencyKey: `trash_purge:${new Date().toISOString().slice(0, 10)}` });
+  const { db, close } = await openDb(config.databaseUrl, { migrate: config.databaseUrl.startsWith('pglite:') }); // Postgres migrates in the release step
+  if (!config.r2) console.warn('[boot] R2 not configured: photos are kept in memory and lost on restart (local dev only)');
+  if (!config.smtpUrl) console.warn('[boot] SMTP_URL not set: emails stay queued until it is');
+  const storage = config.r2 ? r2Storage(config.r2) : memoryStorage();
+  const transport = config.smtpUrl ? smtpTransport(config.smtpUrl, config.emailFrom) : null;
+  const handlers = { ...makeEmailHandlers(() => transport, new URL(config.baseUrl).hostname), ...makePreviewHandlers(storage) };
   const stopWorker = startWorker(db, handlers, { intervalMs: 2000 });
-
-  const report = await rescan(db, config.photosDir);
-  console.log(`[boot] ${report.clients} clients, ${report.projects} projects, ${report.issues.length} issues`);
-  for (const p of db.select({ id: projects.id }).from(projects).all()) {
-    await indexProjectMedia(db, config.photosDir, p.id).catch((e) => console.error('[boot] index', p.id, e));
-  }
-  const stopWatcher = await startWatcher(db, config.photosDir);
-
-  const server = serve({ fetch: createApp({ db, config, photosDir: config.photosDir }).fetch, port: config.port }, () => console.log(`[boot] listening on ${config.port}`));
-  const shutdown = () => { stopWatcher(); stopWorker(); server.close(); process.exit(0); };
+  const server = serve({ fetch: createApp({ db, config, storage }).fetch, port: config.port }, () => console.log(`[boot] listening on ${config.port}`));
+  const shutdown = () => { stopWorker(); server.close(() => void close().finally(() => process.exit(0))); };
   process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

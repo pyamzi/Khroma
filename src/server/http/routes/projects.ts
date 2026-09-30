@@ -9,7 +9,7 @@ import { summary } from '../../domain/selection.js';
 import { commentCounts } from '../../domain/comments.js';
 
 export const summaryOf = (p: ProjectRow) => ({
-  id: p.id, title: ProjectMeta.parse(p.metadataJson).title, date: p.date,
+  id: p.id, clientId: p.clientId, title: ProjectMeta.parse(p.metadataJson).title, date: p.date,
   state: { booking: p.bookingState, production: p.productionState, archivedAt: p.archivedAt },
 });
 

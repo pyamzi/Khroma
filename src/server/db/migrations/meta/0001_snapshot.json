@@ -1,6 +1,6 @@
 {
-  "id": "ab72a67d-8391-4165-80da-131988e253f3",
-  "prevId": "983ffb2a-a5f7-4258-a9db-c9d1d36255a6",
+  "id": "c5c4ccbc-2659-4425-909e-114e0b6a1267",
+  "prevId": "c624e666-f63d-40bd-afd3-0dab51a81456",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -57,12 +57,6 @@
         "stripe_customer_id": {
           "name": "stripe_customer_id",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "listmonk_subscriber_id": {
-          "name": "listmonk_subscriber_id",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },

@@ -21,6 +21,7 @@ describe('admin api', () => {
     let r = await post('/api/clients', { name: 'Jones', emails: ['j@x.com'], phone: '555', notes: 'n' }, owner); expect(r.status).toBe(201); const cl = await json<{ id: string }>(r);
     expect(await json<{ phone: string; notes: string }>(await api(`/api/clients/${cl.id}`, { cookie: owner }))).toMatchObject({ phone: '555', notes: 'n', projects: [] });
     r = await post('/api/projects', { clientId: cl.id, title: 'Headshots', date: '2026-09-01' }, owner); expect(r.status).toBe(201); const np = await json<{ id: string }>(r);
+    expect((await json<{ id: string; clientId: string }[]>(await api('/api/projects', { cookie: owner }))).find((x) => x.id === np.id)?.clientId).toBe(cl.id); // the board maps client names
     let d = await json<{ selection: { included: number; extraPrice: number }; title: string }>(await api(`/api/projects/${np.id}`, { cookie: owner }));
     expect(d.selection).toMatchObject({ included: 30, extraPrice: 2000 });
     expect((await post(`/api/projects/${np.id}`, { title: 'Headshots 2026', downloads: 'none' }, owner, 'PATCH')).status).toBe(200);

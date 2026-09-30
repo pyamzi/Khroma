@@ -45,7 +45,6 @@ export function Clients({ id }: { id?: string }) {
             <Input label="Phone" value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} />
             <Input label="Notes" value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} />
             <Button>Save</Button>
-            <p className="text-sm text-neutral-500">Folder: {detail.folderPath}</p>
           </form>
         </div>
         <Sheet open={sheet === 'project'} onClose={() => setSheet(null)} title="New project">
@@ -65,7 +64,7 @@ export function Clients({ id }: { id?: string }) {
       <Input placeholder="Search clients" value={q} onChange={(e) => setQ(e.target.value)} className="!mt-0 mb-3 max-w-sm" />
       <div className="rounded-2xl bg-white px-4 shadow-sm dark:bg-neutral-900">
         {visible.length === 0 ? <Empty>{q ? 'No matches.' : 'No clients yet. Create one, or drop a client folder into Photos/Clients.'}</Empty> : visible.map((c) => (
-          <Row key={c.id} onClick={() => navigate(`/admin/clients/${c.id}`)}><div className="min-w-0 flex-1"><p>{c.name}</p><p className="truncate text-sm text-neutral-500">{c.emails.join(', ') || 'no email'}</p></div><span className="text-sm text-neutral-500">{c.projects} project{c.projects === 1 ? '' : 's'}</span>{!c.available && <Pill tone="red">unavailable</Pill>}</Row>))}
+          <Row key={c.id} onClick={() => navigate(`/admin/clients/${c.id}`)}><div className="min-w-0 flex-1"><p>{c.name}</p><p className="truncate text-sm text-neutral-500">{c.emails.join(', ') || 'no email'}</p></div><span className="text-sm text-neutral-500">{c.projects} project{c.projects === 1 ? '' : 's'}</span></Row>))}
       </div>
       <Sheet open={sheet === 'client'} onClose={() => setSheet(null)} title="New client">
         <form onSubmit={createClient} className="space-y-3">

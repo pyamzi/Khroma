@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 
-export type Route = { name: 'home' | 'project' | 'cull' | 'setup' | 'signin' | 'admin' | 'admin_files' | 'admin_clients' | 'admin_client' | 'admin_project' | 'admin_settings' | 'unknown'; params: Record<string, string> };
+export type Route = { name: 'home' | 'project' | 'cull' | 'signup' | 'signin' | 'admin' | 'admin_projects' | 'admin_clients' | 'admin_client' | 'admin_project' | 'admin_settings' | 'unknown'; params: Record<string, string> };
 const PATTERNS: [RegExp, Route['name'], string[]][] = [
-  [/^\/$/, 'home', []], [/^\/p\/([^/]+)$/, 'project', ['id']], [/^\/p\/([^/]+)\/cull$/, 'cull', ['id']], [/^\/setup$/, 'setup', []], [/^\/signin$/, 'signin', []],
-  [/^\/admin$/, 'admin', []], [/^\/admin\/files$/, 'admin_files', []], [/^\/admin\/clients$/, 'admin_clients', []], [/^\/admin\/clients\/([^/]+)$/, 'admin_client', ['id']], [/^\/admin\/projects\/([^/]+)$/, 'admin_project', ['id']], [/^\/admin\/settings$/, 'admin_settings', []],
+  [/^\/$/, 'home', []], [/^\/p\/([^/]+)$/, 'project', ['id']], [/^\/p\/([^/]+)\/cull$/, 'cull', ['id']], [/^\/signup$/, 'signup', []], [/^\/signin$/, 'signin', []],
+  [/^\/admin$/, 'admin', []], [/^\/admin\/projects$/, 'admin_projects', []], [/^\/admin\/clients$/, 'admin_clients', []], [/^\/admin\/clients\/([^/]+)$/, 'admin_client', ['id']], [/^\/admin\/projects\/([^/]+)$/, 'admin_project', ['id']], [/^\/admin\/settings$/, 'admin_settings', []],
 ];
 export function match(pathname: string): Route {
   for (const [re, name, keys] of PATTERNS) { const m = pathname.match(re); if (m) return { name, params: Object.fromEntries(keys.map((k, i) => [k, decodeURIComponent(m[i + 1]!)])) }; }

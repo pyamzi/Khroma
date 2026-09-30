@@ -7,10 +7,10 @@ import { Viewer } from '../components/Viewer';
 import { Sheet } from '../components/Sheet';
 import { Shell } from './Shell';
 import { Button, Empty, Input, Pill, Row, Segmented, Select, Toast } from './ui';
-import { PRODUCTION, ago, bytes, type EventRow, type Insights, type ProjectFile, type User } from './api';
+import { PRODUCTION, ago, type EventRow, type Insights, type User } from './api';
 
 type Seg = 'photos' | 'activity' | 'insights' | 'details';
-type Detail = ProjectDetail & { folderPath: string; transferPending: boolean; available: boolean };
+type Detail = ProjectDetail;
 type Full = { title: string; date: string | null; assignedTo: string | null; downloads: 'client' | 'password' | 'none'; comments: { culling: boolean; finals: boolean }; notifyOnPublish: boolean; expiresAt: string | null };
 const EVENT: Record<string, string> = { picked: 'picked a photo', unpicked: 'unpicked a photo', commented: 'commented', comment_resolved: 'resolved a comment', finished_culling: 'finished picking', extras_requested: 'asked for extra photos', slots_granted: 'granted slots', allowance_changed: 'changed the allowance', price_changed: 'changed the extra price', production_changed: 'moved the project', viewed: 'viewed the project', project_updated: 'updated details', project_created: 'created the project', preview_failed: 'preview failed', replaced_externally: 'replaced a live final on disk', media_renamed_externally: 'renamed a media file on disk', photo_remapped: 'relinked a photo', round_cancelled: 'cancelled the round', transferred: 'transferred the project', reordered: 'reordered finals', uploaded: 'uploaded a file', trashed: 'moved to trash', restored: 'restored from trash' };
 
@@ -18,7 +18,7 @@ export function Project({ id, me }: { id: string; me: Me }) {
   const [p, setP] = useState<Detail | null>(null); const [seg, setSeg] = useState<Seg>('photos');
   const [stage, setStage] = useState<'culling' | 'final'>('culling'); const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]); const [insights, setInsights] = useState<Insights | null>(null);
-  const [files, setFiles] = useState<ProjectFile[]>([]); const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [form, setForm] = useState<Full | null>(null); const [open, setOpen] = useState<number | null>(null);
   const [sheet, setSheet] = useState<null | 'grant' | 'allowance' | 'price' | 'more'>(null); const [num, setNum] = useState('');
   const [toast, setToast] = useState<string | null>(null); const [drag, setDrag] = useState<string | null>(null);
@@ -34,12 +34,12 @@ export function Project({ id, me }: { id: string; me: Me }) {
     if (!p) return;
     if (seg === 'activity') void api<EventRow[]>(`/api/projects/${id}/events`).then(setEvents);
     if (seg === 'insights') void api<Insights>(`/api/projects/${id}/insights`).then(setInsights);
-    if (seg === 'details') { void api<ProjectFile[]>(`/api/projects/${id}/files`).then(setFiles); void api<{ title: string; date: string | null; assignedTo?: string | null; downloads?: Full['downloads']; comments: Full['comments']; notifyOnPublish?: boolean; expiresAt?: string | null }>(`/api/projects/${id}`).then((d) => setForm({ title: d.title, date: d.date, assignedTo: d.assignedTo ?? null, downloads: d.downloads ?? 'client', comments: d.comments, notifyOnPublish: d.notifyOnPublish ?? false, expiresAt: d.expiresAt ?? null })); }
+    if (seg === 'details') { void api<{ title: string; date: string | null; assignedTo?: string | null; downloads?: Full['downloads']; comments: Full['comments']; notifyOnPublish?: boolean; expiresAt?: string | null }>(`/api/projects/${id}`).then((d) => setForm({ title: d.title, date: d.date, assignedTo: d.assignedTo ?? null, downloads: d.downloads ?? 'client', comments: d.comments, notifyOnPublish: d.notifyOnPublish ?? false, expiresAt: d.expiresAt ?? null })); }
   }, [seg, p, id]);
   const run = async (fn: () => Promise<unknown>, ok?: string) => { try { await fn(); if (ok) setToast(ok); await load(); return true; } catch (e) { setToast(e instanceof ApiError ? `Error: ${e.message}` : 'Something went wrong'); return false; } };
   const post = (path: string, body: unknown, method = 'POST') => api(`/api/projects/${id}${path}`, { method, body: JSON.stringify(body) });
 
-  if (!p) return <Shell section="/admin/files" title="Project"><Empty>Loading…</Empty></Shell>;
+  if (!p) return <Shell section="/admin/projects" title="Project"><Empty>Loading…</Empty></Shell>;
   const s = p.selection; const prod = p.state.production;
   const saveTitle = () => { if (title !== null && title.trim() && title !== p.title) void run(() => post('', { title: title.trim() }, 'PATCH'), 'Renamed'); setTitle(null); };
   const submitNum = (e: FormEvent) => {
@@ -62,20 +62,17 @@ export function Project({ id, me }: { id: string; me: Me }) {
   </>;
 
   return (
-    <Shell section="/admin/files" title={p.title} actions={actions}>
+    <Shell section="/admin/projects" title={p.title} actions={actions}>
       <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-neutral-500">
-        <button onClick={() => navigate(`/admin/files?path=${encodeURIComponent(p.folderPath.split('/').slice(0, -1).join('/'))}`)} className="min-h-9 text-blue-600">{p.folderPath.split('/')[1]}</button>
-        <span>·</span><span>{p.date ?? 'No date'}</span>
+        <span>{p.date ?? 'No date'}</span>
         <Pill tone={prod === 'culling' ? 'amber' : prod === 'editing' ? 'blue' : prod === 'delivered' ? 'green' : 'neutral'}>{PRODUCTION[prod]}</Pill>
-        {p.transferPending && <><Pill tone="red">transfer pending</Pill><Button kind="secondary" onClick={() => void run(() => post('/approve-transfer', {}), 'Transfer approved')}>Approve</Button></>}
-        {!p.available && !p.transferPending && <Pill tone="red">unavailable</Pill>}
         <span className="ml-auto">{s.confirmed + s.pending} of {s.entitlement} picked{s.pending ? ` · ${s.pending} pending` : ''}{s.deficit ? ` · deficit ${s.deficit}` : ''}</span>
       </div>
       <div className="mb-4"><Segmented value={seg} options={[['photos', 'Photos'], ['activity', 'Activity'], ['insights', 'Insights'], ['details', 'Details']]} onChange={setSeg} /></div>
 
       {seg === 'photos' && <>
         <div className="mb-2 flex items-center gap-3"><Segmented value={stage} options={[['culling', `Culling · ${p.counts.culling}`], ['final', `Finals · ${p.counts.final}${p.counts.drafts ? ` (+${p.counts.drafts} drafts)` : ''}`]]} onChange={setStage} />{stage === 'final' && <span className="text-sm text-neutral-500">Drag to reorder</span>}</div>
-        {photos.length === 0 ? <Empty>{stage === 'culling' ? 'No RAWs yet. Drop them into the raw folder.' : 'No finals yet. Publish from Lightroom or drop JPEGs into finals.'}</Empty> : (
+        {photos.length === 0 ? <Empty>{stage === 'culling' ? 'No RAWs yet.' : 'No finals yet. Publish from Lightroom.'}</Empty> : (
           <div className="grid grid-cols-3 gap-1 md:grid-cols-6">
             {photos.map((x, i) => (
               <div key={x.id} draggable={stage === 'final'} onDragStart={() => setDrag(x.id)} onDragOver={(e) => e.preventDefault()} onDrop={() => { if (drag) void reorder(drag, x.id); setDrag(null); }}
@@ -120,14 +117,9 @@ export function Project({ id, me }: { id: string; me: Me }) {
           <div className="border-t border-neutral-200 pt-3 text-sm text-neutral-500 dark:border-neutral-800">
             <p>Allowance: {s.included} included · {s.entitlement} total slots · ${(s.extraPrice / 100).toFixed(2)} per extra</p>
             <div className="mt-2 flex flex-wrap gap-2"><Button kind="secondary" type="button" onClick={() => setSheet('allowance')}>Change allowance</Button><Button kind="secondary" type="button" onClick={() => setSheet('grant')}>Grant slots</Button><Button kind="secondary" type="button" onClick={() => setSheet('price')}>Change price</Button></div>
-            <p className="mt-3">Folder: {p.folderPath} · booking {p.state.booking} · production {prod}</p>
+            <p className="mt-3">Booking {p.state.booking} · production {prod}</p>
           </div>
         </form>
-        <section className="rounded-2xl bg-white p-5 shadow-sm dark:bg-neutral-900"><h2 className="mb-2 text-lg font-semibold">Files</h2>
-          <p className="mb-2 text-sm text-neutral-500">Documents and attachments in the project folder. Shared files show up in the client's Documents.</p>
-          {files.length === 0 ? <Empty>No files. Upload into the project folder from Files.</Empty> : files.map((f) => <Row key={f.rel}><a href={`/api/files/download?path=${encodeURIComponent(`${p.folderPath}/${f.rel}`)}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate">{f.rel}</a><span className="text-sm text-neutral-500">{bytes(f.size)}</span>
-            <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={f.shared} onChange={(e) => void run(() => post('/share-file', { rel: f.rel, shared: e.target.checked }), e.target.checked ? 'Shared' : 'Unshared').then(() => api<ProjectFile[]>(`/api/projects/${id}/files`).then(setFiles))} /> Share</label></Row>)}
-        </section>
       </div>}
 
       <Sheet open={sheet === 'grant' || sheet === 'allowance' || sheet === 'price'} onClose={() => setSheet(null)} title={sheet === 'grant' ? 'Grant extra slots' : sheet === 'allowance' ? 'Set included picks' : 'Extra photo price'}>
@@ -143,7 +135,6 @@ export function Project({ id, me }: { id: string; me: Me }) {
           <Button kind="secondary" className="w-full" onClick={() => { setSheet(null); setSheet('price'); }}>Change extra price</Button>
           {prod === 'culling' && <Button kind="secondary" className="w-full" onClick={() => { setSheet(null); if (confirm('Clear all current picks for this round?')) void run(() => post('/cancel-round', {}), 'Round cancelled'); }}>Cancel round</Button>}
           <Button kind="secondary" className="w-full" onClick={() => window.open(`/p/${id}`, '_blank')}>Open as client</Button>
-          <Button kind="secondary" className="w-full" onClick={() => navigate(`/admin/files?path=${encodeURIComponent(p.folderPath)}`)}>Open folder</Button>
         </div>
       </Sheet>
       <Toast msg={toast} onDone={() => setToast(null)} />

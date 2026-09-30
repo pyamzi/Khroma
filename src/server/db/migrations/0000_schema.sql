@@ -7,7 +7,6 @@ CREATE TABLE "clients" (
 	"phone" text DEFAULT '' NOT NULL,
 	"notes" text DEFAULT '' NOT NULL,
 	"stripe_customer_id" text,
-	"listmonk_subscriber_id" integer,
 	"referral_code" text
 );
 --> statement-breakpoint

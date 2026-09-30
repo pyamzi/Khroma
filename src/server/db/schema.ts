@@ -31,7 +31,6 @@ export const clients = pgTable('clients', {
   phone: text('phone').notNull().default(''),
   notes: text('notes').notNull().default(''),
   stripeCustomerId: text('stripe_customer_id'),
-  listmonkSubscriberId: integer('listmonk_subscriber_id'),
   referralCode: text('referral_code'),
 });
 
