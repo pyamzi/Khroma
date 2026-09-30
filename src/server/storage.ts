@@ -13,7 +13,7 @@ export const photoKey = (studioId: string, photoId: string, variant: PhotoVarian
 
 /** Tests and local dev. */
 export function memoryStorage(): Storage & { keys(): string[] } {
-  const m = new Map<string, { bytes: Uint8Array; contentType: string }>();
+  const m = new Map<string, { bytes: Uint8Array<ArrayBuffer>; contentType: string }>();
   return {
     async put(key, body, contentType) { m.set(key, { bytes: new Uint8Array(body), contentType }); },
     async get(key) { const o = m.get(key); return o ? { body: new Blob([o.bytes]).stream(), size: o.bytes.byteLength, contentType: o.contentType } : null; },
@@ -34,7 +34,7 @@ export function r2Storage(o: { accountId: string; accessKeyId: string; secretAcc
     return res;
   };
   return {
-    async put(key, body, contentType) { await call('PUT', key, { body, headers: { 'content-type': contentType } }); },
+    async put(key, body, contentType) { await call('PUT', key, { body: body as unknown as BodyInit, headers: { 'content-type': contentType } }); },
     async get(key) {
       const res = await call('GET', key); if (res.status === 404 || !res.body) return null;
       return { body: res.body, size: Number(res.headers.get('content-length') ?? 0), contentType: res.headers.get('content-type') ?? 'application/octet-stream' };
