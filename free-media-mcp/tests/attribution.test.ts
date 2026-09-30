@@ -4,7 +4,7 @@ import { normalizeLicense } from '../src/license';
 import type { MediaResult } from '../src/types';
 
 const base = {
-  media_type: 'image' as const, preview_url: 'p', full_url: 'f', width: 1, height: 1, duration_seconds: null,
+  media_type: 'image' as const, preview_url: 'p', full_url: 'f', width: 1, height: 1, duration_seconds: null, source: null,
 };
 
 const cc: MediaResult = withAttribution({
@@ -56,6 +56,15 @@ describe('attribution', () => {
     expect(attribution(anon, 'markdown')).toBe(
       '"[Untitled](https://www.flickr.com/photos/69706441@N03/33351721606)" by Unknown creator is licensed under [CC BY 2.0](https://creativecommons.org/licenses/by/2.0/).',
     );
+  });
+
+  it('names the Source for Openverse works in every format', () => {
+    const commons = withAttribution({ ...cc, source: 'Wikimedia Commons' });
+    expect(attribution(commons, 'text')).toBe(
+      '"Bride & Groom" by PiktourUK via Wikimedia Commons is licensed under CC BY 2.0. Source: https://www.flickr.com/photos/69706441@N03/33351721606 License: https://creativecommons.org/licenses/by/2.0/',
+    );
+    expect(attribution(commons, 'markdown')).toContain('by [PiktourUK](https://www.flickr.com/photos/69706441@N03) via Wikimedia Commons is licensed under');
+    expect(attribution(commons, 'html')).toContain('</a> via Wikimedia Commons is licensed under');
   });
 
   it('withAttribution sets attribution_text to the text format', () => {

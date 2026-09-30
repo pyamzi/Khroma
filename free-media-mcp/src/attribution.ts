@@ -24,7 +24,8 @@ export function attribution(r: MediaResult, fmt: AttributionFormat): string {
     return `${kind} by ${link(creator, r.creator_url, fmt)} from ${link('Pixabay', r.source_page_url, fmt)}${text ? ` (${r.source_page_url})` : ''}`;
   }
   const tail = text ? ` Source: ${r.source_page_url}${r.license.url ? ` License: ${r.license.url}` : ''}` : '';
-  return `"${link(r.title ?? 'Untitled', r.source_page_url, fmt)}" by ${link(creator, r.creator_url, fmt)} is licensed under ${link(r.license.name, r.license.url, fmt)}.${tail}`;
+  const via = r.source ? ` via ${fmt === 'html' ? escapeHtml(r.source) : r.source}` : '';
+  return `"${link(r.title ?? 'Untitled', r.source_page_url, fmt)}" by ${link(creator, r.creator_url, fmt)}${via} is licensed under ${link(r.license.name, r.license.url, fmt)}.${tail}`;
 }
 
 export function withAttribution(r: Omit<MediaResult, 'attribution_text'>): MediaResult {

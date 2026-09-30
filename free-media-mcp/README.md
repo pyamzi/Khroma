@@ -10,6 +10,8 @@ Tools:
 | `get_media` | One item by id with every rendition (image sizes, video resolutions with direct file URLs). |
 | `get_attribution` | Paste-ready credit lines in `text`, `html`, or `markdown` (TASL for Creative Commons). |
 
+Every result names its **Source**, the site that hosts the work: Pexels, Pixabay, Wikimedia Commons, Flickr, or another collection Openverse indexes. To search only one Source, pass `sources`, for example `{"query": "eiffel tower at night", "sources": ["wikimedia"]}`. Wikimedia Commons and Flickr come through Openverse and are images only. Credits for Creative Commons works name the Source ("by dalecruse via Flickr is licensed under CC BY 2.0").
+
 By default `search_media` hides non-commercial (NC) and no-derivatives (ND) licenses: designs are commercial and crop or edit the media. Unknown or unmapped licenses are never marked safe and only appear when both filters are off.
 
 ## Setup: get keys
@@ -104,6 +106,11 @@ User: *"Find a golden hour wedding couple photo for the homepage hero and credit
 - Anonymous: 20 req/min, 200/day per IP. Register an app for higher limits. Scraping is disallowed; we request at most 20 results per query and cache for 1 hour.
 - Image-only here (Openverse has no video catalog).
 
+**Wikimedia Commons** (<https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia>)
+- Reached through Openverse's `source=wikimedia` filter, so Openverse's rate limits and "does not verify licenses" caveat apply.
+- Commons asks reusers to credit the author, name and link the license, and link the file page; the generated credit does all four and adds "via Wikimedia Commons".
+- Commons says hotlinking is possible but not recommended. Treat `full_url` as a one-time import, not an embed.
+
 **Pexels** (<https://www.pexels.com/api/documentation/#guidelines>, <https://www.pexels.com/license/>)
 - Free for commercial use and modification; attribution not required by the license, but the API guidelines ask to credit photographers when possible and to show a prominent "Photos provided by Pexels" link. We set `attribution_required: true` and generate "Photo by X on Pexels" credits.
 - Not allowed: selling unaltered copies, redistributing on stock or wallpaper platforms, implying endorsement by people or brands, use in trademarks, replicating Pexels' core functionality, working around rate limits.
@@ -128,4 +135,5 @@ Workers KV, not the Cache API: the Cache API is a no-op on `*.workers.dev` and i
 - Pixabay `square` and all Pixabay video orientation filtering happen after the fact by dimensions, so those provider slots may return fewer than requested.
 - Pexels videos and Pixabay items have no title; Pexels photo titles are the `alt` text.
 - `get_attribution` re-fetches each item through the provider detail endpoint (cached 1 h / 24 h per id), so a call with many Openverse ids spends that many requests against the anonymous 20/min burst limit. Every `search_media` result already carries a plain-text `attribution_text`; use `get_attribution` for the items actually placed, or set the Openverse client credentials.
+- Wikimedia Commons comes through Openverse, which ingests only Commons images under Creative Commons licenses and about a day behind Commons. Most Commons public-domain files, and all Commons video, are not searchable here.
 - No pagination, no color or size filters, no Unsplash (v1 scope).

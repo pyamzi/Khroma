@@ -3,7 +3,7 @@ import { cached } from '../cache';
 import type { Env } from '../env';
 import { fetchJson, HttpError } from '../http';
 import { normalizeLicense } from '../license';
-import type { MediaResult, Provider, SearchQuery } from '../types';
+import { SOURCE_NAMES, type MediaResult, type Provider, type SearchQuery, type SourceId } from '../types';
 
 const API = 'https://api.openverse.org/v1';
 export const OPENVERSE_TTL = 3600;
@@ -16,6 +16,7 @@ export interface OvImage {
   url: string;
   thumbnail: string;
   foreign_landing_url: string;
+  source: string;
   license: string;
   license_version: string | null;
   license_url: string | null;
@@ -24,6 +25,11 @@ export interface OvImage {
 }
 
 const ASPECT = { landscape: 'wide', portrait: 'tall', square: 'square' } as const;
+const OWN_SOURCES = ['wikimedia', 'flickr'] as const satisfies readonly SourceId[];
+
+// ponytail: names only the Sources we filter on; any other Openverse source is title-cased from its id.
+const sourceName = (id: string) =>
+  SOURCE_NAMES[id as SourceId] ?? id.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
 export function mapOpenverse(i: OvImage): MediaResult {
   return withAttribution({
@@ -39,6 +45,7 @@ export function mapOpenverse(i: OvImage): MediaResult {
     width: i.width ?? null,
     height: i.height ?? null,
     duration_seconds: null,
+    source: sourceName(i.source),
     license: normalizeLicense(i.license, { version: i.license_version, url: i.license_url }),
   });
 }
@@ -63,12 +70,15 @@ async function authHeaders(env: Env): Promise<Record<string, string>> {
 export const openverse: Provider = {
   id: 'openverse',
   supports: ['image'],
+  sources: OWN_SOURCES,
 
   async search(q: SearchQuery, env: Env) {
     const p = new URLSearchParams({ q: q.query.slice(0, 200), page_size: String(q.limit), mature: 'false' });
     if (q.orientation !== 'any') p.set('aspect_ratio', ASPECT[q.orientation]);
     const types = [q.commercial_use_only && 'commercial', q.modification_allowed && 'modification'].filter(Boolean);
     if (types.length) p.set('license_type', types.join(','));
+    const own = (q.sources ?? []).filter((s) => (OWN_SOURCES as readonly string[]).includes(s));
+    if (own.length) p.set('source', own.join(','));
     const url = `${API}/images/?${p}`;
     const data = await cached(env.MEDIA_CACHE, url, OPENVERSE_TTL, async () =>
       fetchJson<{ results: OvImage[] }>(url, { headers: await authHeaders(env) }),

@@ -53,6 +53,9 @@ describe('tools', () => {
     expect(tools.find((t) => t.name === 'get_media')!.description).toBe(GET_MEDIA_DESCRIPTION);
     expect(tools.find((t) => t.name === 'get_attribution')!.description).toBe(GET_ATTRIBUTION_DESCRIPTION);
     expect(search.annotations?.readOnlyHint).toBe(true);
+    expect(search.description).toContain('Wikimedia Commons');
+    const props = (search.inputSchema as { properties: Record<string, { items?: { enum?: string[] } }> }).properties;
+    expect(props.sources?.items?.enum).toEqual(['pexels', 'pixabay', 'wikimedia', 'flickr']);
   });
 
   it('search_media returns compact JSON with results and warnings, defaults applied', async () => {

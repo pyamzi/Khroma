@@ -74,6 +74,26 @@ describe('openverse.search', () => {
   });
 });
 
+describe('Sources', () => {
+  it('maps the Openverse source to a readable Source name, with a fallback for unlisted ones', () => {
+    expect(mapOpenverse(OV_IMAGE).source).toBe('Flickr');
+    expect(mapOpenverse({ ...OV_IMAGE, source: 'wikimedia' }).source).toBe('Wikimedia Commons');
+    expect(mapOpenverse({ ...OV_IMAGE, source: 'smithsonian_national_museum_of_natural_history' }).source).toBe('Smithsonian National Museum Of Natural History');
+  });
+
+  it('passes only its own Sources to Openverse as a comma-separated source filter', async () => {
+    const { calls } = stubFetch({ 'api.openverse.org': () => jsonResponse({ results: [] }) });
+    await openverse.search({ ...q, sources: ['wikimedia', 'pexels', 'flickr'] }, fakeEnv());
+    expect(calls[0]!.searchParams.get('source')).toBe('wikimedia,flickr');
+  });
+
+  it('sends no source filter when no Sources are requested', async () => {
+    const { calls } = stubFetch({ 'api.openverse.org': () => jsonResponse({ results: [] }) });
+    await openverse.search(q, fakeEnv());
+    expect(calls[0]!.searchParams.get('source')).toBeNull();
+  });
+});
+
 describe('openverse.get', () => {
   it('returns the item with thumbnail and full renditions', async () => {
     const { calls } = stubFetch({ 'api.openverse.org': () => jsonResponse(OV_IMAGE) });

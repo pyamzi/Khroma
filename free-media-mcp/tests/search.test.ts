@@ -87,6 +87,28 @@ describe('searchMedia', () => {
     expect(out.results.map((r) => r.id)).toEqual(['pixabay:7']);
   });
 
+  it('sources: ["wikimedia"] queries only Openverse, with the Commons filter', async () => {
+    const { calls } = stubFetch(allOk());
+    const out = await searchMedia({ ...input, sources: ['wikimedia'] }, fakeEnv());
+    expect(calls.map((u) => u.hostname)).toEqual(['api.openverse.org']);
+    expect(calls[0]!.searchParams.get('source')).toBe('wikimedia');
+    expect(out.warnings).toEqual([]);
+  });
+
+  it('sources: ["pexels"] never touches Openverse or Pixabay', async () => {
+    const { calls } = stubFetch(allOk());
+    await searchMedia({ ...input, sources: ['pexels'] }, fakeEnv());
+    expect(calls.map((u) => u.hostname)).toEqual(['api.pexels.com']);
+  });
+
+  it('a requested Source no active provider can search is a warning, not a throw', async () => {
+    const { calls } = stubFetch(allOk());
+    const out = await searchMedia({ ...input, media_type: 'video', sources: ['wikimedia'] }, fakeEnv());
+    expect(calls).toHaveLength(0);
+    expect(out.results).toEqual([]);
+    expect(out.warnings).toEqual(['wikimedia: no configured provider searches this source for video', 'no providers available for this query']);
+  });
+
   it('trims the query before use', async () => {
     const { calls } = stubFetch(allOk());
     await searchMedia({ ...input, query: '  sunset  ', providers: ['openverse'] }, fakeEnv());

@@ -13,7 +13,7 @@ describe('mapping', () => {
       id: 'pexels:2014422', provider: 'pexels', media_type: 'image', title: 'Brown Rocks During Golden Hour',
       creator: 'Joey Farina', creator_url: 'https://www.pexels.com/@joey', source_page_url: PX_PHOTO.url,
       preview_url: PX_PHOTO.src.medium, full_url: PX_PHOTO.src.original, width: 3024, height: 3024, duration_seconds: null,
-      license: { code: 'pexels', attribution_required: true, commercial_use: true },
+      license: { code: 'pexels', attribution_required: true, commercial_use: true }, source: 'Pexels',
       attribution_text: 'Photo by Joey Farina on Pexels (https://www.pexels.com/photo/brown-rocks-during-golden-hour-2014422/)',
     });
   });

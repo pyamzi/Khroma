@@ -3,6 +3,16 @@ import type { Env } from './env';
 export const PROVIDER_IDS = ['openverse', 'pexels', 'pixabay'] as const;
 export type ProviderId = (typeof PROVIDER_IDS)[number];
 export type MediaType = 'image' | 'video';
+
+/** Sources a search can be restricted to: the collection that hosts a work (see CONTEXT.md). */
+export const SOURCE_IDS = ['pexels', 'pixabay', 'wikimedia', 'flickr'] as const;
+export type SourceId = (typeof SOURCE_IDS)[number];
+export const SOURCE_NAMES: Record<SourceId, string> = {
+  pexels: 'Pexels',
+  pixabay: 'Pixabay',
+  wikimedia: 'Wikimedia Commons',
+  flickr: 'Flickr',
+};
 export type Orientation = 'landscape' | 'portrait' | 'square' | 'any';
 
 export type LicenseCode =
@@ -40,6 +50,8 @@ export interface MediaResult {
   width: number | null;
   height: number | null;
   duration_seconds: number | null;
+  /** Readable name of the Source that hosts the work, e.g. "Wikimedia Commons". */
+  source: string | null;
   license: License;
   attribution_text: string;
   /** Only present on get_media. */
@@ -54,11 +66,15 @@ export interface SearchQuery {
   limit: number;
   commercial_use_only: boolean;
   modification_allowed: boolean;
+  /** Restrict to works hosted by these Sources. */
+  sources?: SourceId[];
 }
 
 export interface Provider {
   id: ProviderId;
   supports: readonly MediaType[];
+  /** Sources this Provider can restrict a search to. */
+  sources: readonly SourceId[];
   search(q: SearchQuery, env: Env): Promise<MediaResult[]>;
   /** null = not found. nativeId is everything after the first colon of the unified id. */
   get(nativeId: string, env: Env): Promise<MediaResult | null>;

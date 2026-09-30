@@ -55,6 +55,7 @@ export function mapPexelsPhoto(p: PxPhoto): MediaResult {
     width: p.width,
     height: p.height,
     duration_seconds: null,
+    source: 'Pexels',
     license: normalizeLicense('pexels'),
   });
 }
@@ -75,6 +76,7 @@ export function mapPexelsVideo(v: PxVideo): MediaResult | null {
     width: v.width,
     height: v.height,
     duration_seconds: v.duration,
+    source: 'Pexels',
     license: normalizeLicense('pexels'),
   });
 }
@@ -95,6 +97,7 @@ const headers = (env: Env) => ({ Authorization: env.PEXELS_API_KEY ?? '' });
 export const pexels: Provider = {
   id: 'pexels',
   supports: ['image', 'video'],
+  sources: ['pexels'],
 
   async search(q: SearchQuery, env: Env) {
     const p = new URLSearchParams({ query: q.query, per_page: String(q.limit) });

@@ -3,7 +3,7 @@ import { passesFilters } from './license';
 import { openverse } from './providers/openverse';
 import { pexels } from './providers/pexels';
 import { pixabay } from './providers/pixabay';
-import { PROVIDER_IDS, type MediaResult, type MediaType, type Orientation, type Provider, type ProviderId, type SearchQuery } from './types';
+import { PROVIDER_IDS, type MediaResult, type MediaType, type Orientation, type Provider, type ProviderId, type SearchQuery, type SourceId } from './types';
 
 export interface SearchInput {
   query: string;
@@ -12,6 +12,7 @@ export interface SearchInput {
   modification_allowed: boolean;
   orientation: Orientation;
   providers?: ProviderId[];
+  sources?: SourceId[];
   limit: number;
 }
 
@@ -47,8 +48,16 @@ export function interleave<T>(lists: T[][], limit: number): T[] {
 export async function searchMedia(input: SearchInput, env: Env, providers = configuredProviders(env)): Promise<SearchOutput> {
   const warnings: string[] = [];
   const wanted = input.providers?.length ? input.providers : undefined;
-  const active = providers.filter((p) => p.supports.includes(input.media_type) && (!wanted || wanted.includes(p.id)));
+  const sources = input.sources?.length ? input.sources : undefined;
+  const active = providers.filter(
+    (p) =>
+      p.supports.includes(input.media_type) &&
+      (!wanted || wanted.includes(p.id)) &&
+      (!sources || p.sources.some((s) => sources.includes(s))),
+  );
   for (const id of wanted ?? []) if (!active.some((p) => p.id === id)) warnings.push(`${id}: not configured or does not support ${input.media_type}`);
+  for (const s of sources ?? [])
+    if (!active.some((p) => p.sources.includes(s))) warnings.push(`${s}: no configured provider searches this source for ${input.media_type}`);
   if (active.length === 0) warnings.push('no providers available for this query');
 
   const q: SearchQuery = {
@@ -58,6 +67,7 @@ export async function searchMedia(input: SearchInput, env: Env, providers = conf
     limit: input.limit,
     commercial_use_only: input.commercial_use_only,
     modification_allowed: input.modification_allowed,
+    sources,
   };
   const settled = await Promise.allSettled(active.map((p) => p.search(q, env)));
   const lists = settled.map((s, i) => {

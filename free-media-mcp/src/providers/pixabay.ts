@@ -77,6 +77,7 @@ export function mapPixabayImage(h: PbImage): MediaResult {
     width: full.width,
     height: full.height,
     duration_seconds: null,
+    source: 'Pixabay',
     license: normalizeLicense('pixabay'),
   });
 }
@@ -102,6 +103,7 @@ export function mapPixabayVideo(v: PbVideo): MediaResult | null {
     width: best.width,
     height: best.height,
     duration_seconds: v.duration,
+    source: 'Pixabay',
     license: normalizeLicense('pixabay'),
   });
 }
@@ -119,6 +121,7 @@ async function hits<T>(env: Env, path: '/' | '/videos/', params: URLSearchParams
 export const pixabay: Provider = {
   id: 'pixabay',
   supports: ['image', 'video'],
+  sources: ['pixabay'],
 
   async search(q: SearchQuery, env: Env) {
     const p = new URLSearchParams({ q: q.query.slice(0, 100), per_page: String(Math.max(3, q.limit)), safesearch: 'true' });

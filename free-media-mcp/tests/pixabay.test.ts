@@ -14,7 +14,7 @@ describe('mapping', () => {
       id: 'pixabay:195893', provider: 'pixabay', media_type: 'image', title: null, creator: 'Josch13',
       creator_url: 'https://pixabay.com/users/Josch13-48777/', source_page_url: PB_IMAGE.pageURL,
       preview_url: PB_IMAGE.webformatURL, full_url: PB_IMAGE.largeImageURL, width: 1280, height: 720,
-      license: { code: 'pixabay', attribution_required: false, commercial_use: true },
+      license: { code: 'pixabay', attribution_required: false, commercial_use: true }, source: 'Pixabay',
       attribution_text: 'Image by Josch13 from Pixabay (https://pixabay.com/en/blossom-bloom-flower-195893/)',
     });
   });

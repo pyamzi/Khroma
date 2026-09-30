@@ -9,6 +9,7 @@ export const OV_IMAGE = {
   license_version: '2.0',
   license_url: 'https://creativecommons.org/licenses/by/2.0/',
   provider: 'flickr',
+  source: 'flickr',
   height: 837,
   width: 1024,
   thumbnail: 'https://api.openverse.org/v1/images/575fdc8f-9f62-431c-a24d-9717001ff2ba/thumb/',
