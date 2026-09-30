@@ -1,5 +1,6 @@
 import { Hono, type ErrorHandler, type MiddlewareHandler } from 'hono';
 import { serveStatic } from '@hono/node-server/serve-static';
+import { bodyLimit } from 'hono/body-limit';
 import type { Db } from './db/client.js';
 import type { Config } from './config.js';
 import type { Storage } from './storage.js';
@@ -20,10 +21,15 @@ export type AppDeps = { db: Db; config: Config; storage: Storage; webRoot?: stri
 class Rollback extends Error {}
 /**
  * One transaction per request, bound to the session's Studio (or to no Studio). A request that throws or answers
- * 4xx/5xx changes nothing: the transaction rolls back.
+ * 4xx/5xx changes nothing: the transaction rolls back. The body is read first, so a slow client never holds a connection.
  */
 export function requestTx(root: Db): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
+    if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
+      // Hono caches what is read here for the handler; multipart must be read as form data to keep its boundary
+      const form = /^(multipart\/form-data|application\/x-www-form-urlencoded)/.test(c.req.header('content-type') ?? '');
+      await (form ? c.req.formData() : c.req.arrayBuffer()).catch(() => undefined); // a malformed body fails in the handler's own parse
+    }
     const run = async (tx: Db) => {
       c.set('db', tx); await next();
       if (c.error) throw c.error;
@@ -34,6 +40,7 @@ export function requestTx(root: Db): MiddlewareHandler<AppEnv> {
     catch (e) { if (!(e instanceof Rollback) && e !== c.error) throw e; } // the response is already set; onError already ran
   };
 }
+export const MAX_BODY_BYTES = 100 * 1024 * 1024; // ponytail: finals arrive as JPEGs through the app until H2 moves uploads to presigned R2 URLs
 export const onError: ErrorHandler<AppEnv> = (e, c) => { console.error('[http]', c.req.method, c.req.path, e); return c.json({ error: 'internal' }, 500); };
 
 export function createApp({ db, config, storage, webRoot = './dist/web' }: AppDeps): Hono<AppEnv> {
@@ -52,6 +59,7 @@ export function createApp({ db, config, storage, webRoot = './dist/web' }: AppDe
     if (!bearer && c.req.method !== 'GET' && c.req.method !== 'HEAD' && c.req.header('x-requested-with') !== 'fetch') return c.json({ error: 'forbidden' }, 403);
     await next();
   });
+  app.use('/api/*', bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => c.json({ error: 'too_large' }, 413) }));
   app.use('*', sessionMiddleware(db));
   app.use('*', async (c, next) => { c.set('storage', storage); await next(); });
   app.route('/', systemRoutes(config)); // registered before the request transaction: these open their own system transactions
