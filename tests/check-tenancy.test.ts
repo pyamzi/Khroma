@@ -21,4 +21,9 @@ describe('checkTenancy', () => {
     await db.execute(sql`create policy tenant on clients using (true) with check (true)`);
     expect((await checkTenancy(db)).join('\n')).toMatch(/can see another Studio/);
   });
+  it('names a tenant table without a studio_id index', async () => {
+    const db = await testDb();
+    await db.execute(sql`drop index users_studio`);
+    expect(await checkTenancy(db)).toEqual(['users: no index led by studio_id']);
+  });
 });

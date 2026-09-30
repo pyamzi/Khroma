@@ -7,7 +7,8 @@ CREATE TABLE "clients" (
 	"phone" text DEFAULT '' NOT NULL,
 	"notes" text DEFAULT '' NOT NULL,
 	"stripe_customer_id" text,
-	"referral_code" text
+	"referral_code" text,
+	CONSTRAINT "clients_studio_id" UNIQUE("studio_id","id")
 );
 --> statement-breakpoint
 CREATE TABLE "comments" (
@@ -90,7 +91,8 @@ CREATE TABLE "photos" (
 	"captured_at" text,
 	"sort_order" integer DEFAULT 0 NOT NULL,
 	"section" text,
-	"edit_state" text DEFAULT 'none' NOT NULL
+	"edit_state" text DEFAULT 'none' NOT NULL,
+	CONSTRAINT "photos_studio_id" UNIQUE("studio_id","id")
 );
 --> statement-breakpoint
 CREATE TABLE "picks" (
@@ -114,7 +116,8 @@ CREATE TABLE "projects" (
 	"date" text,
 	"current_round" integer DEFAULT 1 NOT NULL,
 	"selection_version" integer DEFAULT 1 NOT NULL,
-	"metadata_json" jsonb NOT NULL
+	"metadata_json" jsonb NOT NULL,
+	CONSTRAINT "projects_studio_id" UNIQUE("studio_id","id")
 );
 --> statement-breakpoint
 CREATE TABLE "reservations" (
@@ -166,6 +169,7 @@ CREATE TABLE "slot_grants" (
 CREATE TABLE "studios" (
 	"id" text PRIMARY KEY NOT NULL,
 	"name" text NOT NULL,
+	"confirmed_at" text,
 	"created_at" text DEFAULT to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') NOT NULL
 );
 --> statement-breakpoint
@@ -191,36 +195,44 @@ CREATE TABLE "webhook_inbox" (
 --> statement-breakpoint
 ALTER TABLE "clients" ADD CONSTRAINT "clients_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "comments" ADD CONSTRAINT "comments_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "comments" ADD CONSTRAINT "comments_photo_id_photos_id_fk" FOREIGN KEY ("photo_id") REFERENCES "public"."photos"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "comments" ADD CONSTRAINT "comments_studio_id_photo_id_photos_studio_id_id_fk" FOREIGN KEY ("studio_id","photo_id") REFERENCES "public"."photos"("studio_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "events" ADD CONSTRAINT "events_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "favorites" ADD CONSTRAINT "favorites_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "favorites" ADD CONSTRAINT "favorites_photo_id_photos_id_fk" FOREIGN KEY ("photo_id") REFERENCES "public"."photos"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "favorites" ADD CONSTRAINT "favorites_studio_id_photo_id_photos_studio_id_id_fk" FOREIGN KEY ("studio_id","photo_id") REFERENCES "public"."photos"("studio_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invoices" ADD CONSTRAINT "invoices_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "invoices" ADD CONSTRAINT "invoices_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "invoices" ADD CONSTRAINT "invoices_studio_id_project_id_projects_studio_id_id_fk" FOREIGN KEY ("studio_id","project_id") REFERENCES "public"."projects"("studio_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "jobs" ADD CONSTRAINT "jobs_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "photos" ADD CONSTRAINT "photos_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "photos" ADD CONSTRAINT "photos_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "photos" ADD CONSTRAINT "photos_studio_id_project_id_projects_studio_id_id_fk" FOREIGN KEY ("studio_id","project_id") REFERENCES "public"."projects"("studio_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "picks" ADD CONSTRAINT "picks_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "picks" ADD CONSTRAINT "picks_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "picks" ADD CONSTRAINT "picks_photo_id_photos_id_fk" FOREIGN KEY ("photo_id") REFERENCES "public"."photos"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "picks" ADD CONSTRAINT "picks_studio_id_project_id_projects_studio_id_id_fk" FOREIGN KEY ("studio_id","project_id") REFERENCES "public"."projects"("studio_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "picks" ADD CONSTRAINT "picks_studio_id_photo_id_photos_studio_id_id_fk" FOREIGN KEY ("studio_id","photo_id") REFERENCES "public"."photos"("studio_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "projects" ADD CONSTRAINT "projects_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "projects" ADD CONSTRAINT "projects_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "projects" ADD CONSTRAINT "projects_studio_id_client_id_clients_studio_id_id_fk" FOREIGN KEY ("studio_id","client_id") REFERENCES "public"."clients"("studio_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "reservations" ADD CONSTRAINT "reservations_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "reservations" ADD CONSTRAINT "reservations_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "reservations" ADD CONSTRAINT "reservations_studio_id_project_id_projects_studio_id_id_fk" FOREIGN KEY ("studio_id","project_id") REFERENCES "public"."projects"("studio_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "settings" ADD CONSTRAINT "settings_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "slot_grants" ADD CONSTRAINT "slot_grants_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "slot_grants" ADD CONSTRAINT "slot_grants_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "slot_grants" ADD CONSTRAINT "slot_grants_studio_id_project_id_projects_studio_id_id_fk" FOREIGN KEY ("studio_id","project_id") REFERENCES "public"."projects"("studio_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "users" ADD CONSTRAINT "users_studio_id_studios_id_fk" FOREIGN KEY ("studio_id") REFERENCES "public"."studios"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "comments_studio" ON "comments" USING btree ("studio_id");--> statement-breakpoint
 CREATE INDEX "events_project" ON "events" USING btree ("project_id","at");--> statement-breakpoint
+CREATE INDEX "events_studio" ON "events" USING btree ("studio_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "favorites_one" ON "favorites" USING btree ("photo_id","session_id");--> statement-breakpoint
+CREATE INDEX "favorites_studio" ON "favorites" USING btree ("studio_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "invoices_one_open_extras" ON "invoices" USING btree ("project_id") WHERE kind = 'extras' AND paid_at IS NULL AND voided_at IS NULL;--> statement-breakpoint
+CREATE INDEX "invoices_studio" ON "invoices" USING btree ("studio_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "jobs_idempotency" ON "jobs" USING btree ("studio_id","idempotency_key");--> statement-breakpoint
 CREATE INDEX "jobs_due" ON "jobs" USING btree ("state","next_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "photos_project_path" ON "photos" USING btree ("project_id","rel_path");--> statement-breakpoint
 CREATE UNIQUE INDEX "picks_project_photo" ON "picks" USING btree ("project_id","photo_id");--> statement-breakpoint
+CREATE INDEX "picks_studio" ON "picks" USING btree ("studio_id");--> statement-breakpoint
 CREATE INDEX "reservations_date" ON "reservations" USING btree ("local_date","state");--> statement-breakpoint
+CREATE INDEX "reservations_studio" ON "reservations" USING btree ("studio_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "sessions_login_token" ON "sessions" USING btree ("login_token_hash");--> statement-breakpoint
 CREATE UNIQUE INDEX "sessions_token" ON "sessions" USING btree ("token_hash");--> statement-breakpoint
-CREATE UNIQUE INDEX "slot_grants_reference" ON "slot_grants" USING btree ("reference");--> statement-breakpoint
+CREATE INDEX "sessions_studio" ON "sessions" USING btree ("studio_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "slot_grants_reference" ON "slot_grants" USING btree ("studio_id","reference");--> statement-breakpoint
+CREATE INDEX "users_studio" ON "users" USING btree ("studio_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "inbox_provider_event" ON "webhook_inbox" USING btree ("provider","event_id");

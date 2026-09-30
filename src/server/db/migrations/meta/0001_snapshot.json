@@ -1,6 +1,6 @@
 {
-  "id": "c5c4ccbc-2659-4425-909e-114e0b6a1267",
-  "prevId": "c624e666-f63d-40bd-afd3-0dab51a81456",
+  "id": "b909473d-96d2-4af1-9e5e-9b286fdc68a5",
+  "prevId": "27004f7e-c497-4e92-ad80-e81513b54f39",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -84,7 +84,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "clients_studio_id": {
+          "name": "clients_studio_id",
+          "columns": [
+            "studio_id",
+            "id"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -174,7 +183,23 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "comments_studio": {
+          "name": "comments_studio",
+          "columns": [
+            {
+              "expression": "studio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
+        }
+      },
       "foreignKeys": {
         "comments_studio_id_studios_id_fk": {
           "name": "comments_studio_id_studios_id_fk",
@@ -189,14 +214,16 @@
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
-        "comments_photo_id_photos_id_fk": {
-          "name": "comments_photo_id_photos_id_fk",
+        "comments_studio_id_photo_id_photos_studio_id_id_fk": {
+          "name": "comments_studio_id_photo_id_photos_studio_id_id_fk",
           "tableFrom": "comments",
           "columnsFrom": [
+            "studio_id",
             "photo_id"
           ],
           "tableTo": "photos",
           "columnsTo": [
+            "studio_id",
             "id"
           ],
           "onUpdate": "no action",
@@ -280,6 +307,21 @@
           "with": {},
           "method": "btree",
           "concurrently": false
+        },
+        "events_studio": {
+          "name": "events_studio",
+          "columns": [
+            {
+              "expression": "studio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
         }
       },
       "foreignKeys": {
@@ -348,6 +390,21 @@
           "with": {},
           "method": "btree",
           "concurrently": false
+        },
+        "favorites_studio": {
+          "name": "favorites_studio",
+          "columns": [
+            {
+              "expression": "studio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
         }
       },
       "foreignKeys": {
@@ -364,14 +421,16 @@
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
-        "favorites_photo_id_photos_id_fk": {
-          "name": "favorites_photo_id_photos_id_fk",
+        "favorites_studio_id_photo_id_photos_studio_id_id_fk": {
+          "name": "favorites_studio_id_photo_id_photos_studio_id_id_fk",
           "tableFrom": "favorites",
           "columnsFrom": [
+            "studio_id",
             "photo_id"
           ],
           "tableTo": "photos",
           "columnsTo": [
+            "studio_id",
             "id"
           ],
           "onUpdate": "no action",
@@ -501,6 +560,21 @@
           "method": "btree",
           "where": "kind = 'extras' AND paid_at IS NULL AND voided_at IS NULL",
           "concurrently": false
+        },
+        "invoices_studio": {
+          "name": "invoices_studio",
+          "columns": [
+            {
+              "expression": "studio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
         }
       },
       "foreignKeys": {
@@ -517,14 +591,16 @@
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
-        "invoices_project_id_projects_id_fk": {
-          "name": "invoices_project_id_projects_id_fk",
+        "invoices_studio_id_project_id_projects_studio_id_id_fk": {
+          "name": "invoices_studio_id_project_id_projects_studio_id_id_fk",
           "tableFrom": "invoices",
           "columnsFrom": [
+            "studio_id",
             "project_id"
           ],
           "tableTo": "projects",
           "columnsTo": [
+            "studio_id",
             "id"
           ],
           "onUpdate": "no action",
@@ -819,14 +895,16 @@
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
-        "photos_project_id_projects_id_fk": {
-          "name": "photos_project_id_projects_id_fk",
+        "photos_studio_id_project_id_projects_studio_id_id_fk": {
+          "name": "photos_studio_id_project_id_projects_studio_id_id_fk",
           "tableFrom": "photos",
           "columnsFrom": [
+            "studio_id",
             "project_id"
           ],
           "tableTo": "projects",
           "columnsTo": [
+            "studio_id",
             "id"
           ],
           "onUpdate": "no action",
@@ -834,7 +912,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "photos_studio_id": {
+          "name": "photos_studio_id",
+          "columns": [
+            "studio_id",
+            "id"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -910,6 +997,21 @@
           "with": {},
           "method": "btree",
           "concurrently": false
+        },
+        "picks_studio": {
+          "name": "picks_studio",
+          "columns": [
+            {
+              "expression": "studio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
         }
       },
       "foreignKeys": {
@@ -926,27 +1028,31 @@
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
-        "picks_project_id_projects_id_fk": {
-          "name": "picks_project_id_projects_id_fk",
+        "picks_studio_id_project_id_projects_studio_id_id_fk": {
+          "name": "picks_studio_id_project_id_projects_studio_id_id_fk",
           "tableFrom": "picks",
           "columnsFrom": [
+            "studio_id",
             "project_id"
           ],
           "tableTo": "projects",
           "columnsTo": [
+            "studio_id",
             "id"
           ],
           "onUpdate": "no action",
           "onDelete": "no action"
         },
-        "picks_photo_id_photos_id_fk": {
-          "name": "picks_photo_id_photos_id_fk",
+        "picks_studio_id_photo_id_photos_studio_id_id_fk": {
+          "name": "picks_studio_id_photo_id_photos_studio_id_id_fk",
           "tableFrom": "picks",
           "columnsFrom": [
+            "studio_id",
             "photo_id"
           ],
           "tableTo": "photos",
           "columnsTo": [
+            "studio_id",
             "id"
           ],
           "onUpdate": "no action",
@@ -1051,14 +1157,16 @@
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
-        "projects_client_id_clients_id_fk": {
-          "name": "projects_client_id_clients_id_fk",
+        "projects_studio_id_client_id_clients_studio_id_id_fk": {
+          "name": "projects_studio_id_client_id_clients_studio_id_id_fk",
           "tableFrom": "projects",
           "columnsFrom": [
+            "studio_id",
             "client_id"
           ],
           "tableTo": "clients",
           "columnsTo": [
+            "studio_id",
             "id"
           ],
           "onUpdate": "no action",
@@ -1066,7 +1174,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "projects_studio_id": {
+          "name": "projects_studio_id",
+          "columns": [
+            "studio_id",
+            "id"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1158,6 +1275,21 @@
           "with": {},
           "method": "btree",
           "concurrently": false
+        },
+        "reservations_studio": {
+          "name": "reservations_studio",
+          "columns": [
+            {
+              "expression": "studio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
         }
       },
       "foreignKeys": {
@@ -1174,14 +1306,16 @@
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
-        "reservations_project_id_projects_id_fk": {
-          "name": "reservations_project_id_projects_id_fk",
+        "reservations_studio_id_project_id_projects_studio_id_id_fk": {
+          "name": "reservations_studio_id_project_id_projects_studio_id_id_fk",
           "tableFrom": "reservations",
           "columnsFrom": [
+            "studio_id",
             "project_id"
           ],
           "tableTo": "projects",
           "columnsTo": [
+            "studio_id",
             "id"
           ],
           "onUpdate": "no action",
@@ -1301,6 +1435,21 @@
             }
           ],
           "isUnique": true,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
+        },
+        "sessions_studio": {
+          "name": "sessions_studio",
+          "columns": [
+            {
+              "expression": "studio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "with": {},
           "method": "btree",
           "concurrently": false
@@ -1441,6 +1590,12 @@
           "name": "slot_grants_reference",
           "columns": [
             {
+              "expression": "studio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
               "expression": "reference",
               "isExpression": false,
               "asc": true,
@@ -1467,14 +1622,16 @@
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
-        "slot_grants_project_id_projects_id_fk": {
-          "name": "slot_grants_project_id_projects_id_fk",
+        "slot_grants_studio_id_project_id_projects_studio_id_id_fk": {
+          "name": "slot_grants_studio_id_project_id_projects_studio_id_id_fk",
           "tableFrom": "slot_grants",
           "columnsFrom": [
+            "studio_id",
             "project_id"
           ],
           "tableTo": "projects",
           "columnsTo": [
+            "studio_id",
             "id"
           ],
           "onUpdate": "no action",
@@ -1502,6 +1659,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -1570,7 +1733,23 @@
           "default": "to_char(now() at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "users_studio": {
+          "name": "users_studio",
+          "columns": [
+            {
+              "expression": "studio_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
+        }
+      },
       "foreignKeys": {
         "users_studio_id_studios_id_fk": {
           "name": "users_studio_id_studios_id_fk",

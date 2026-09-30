@@ -2,6 +2,7 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdir } from 'node:fs/promises';
+import pg from 'pg';
 import * as schema from './schema.js';
 
 export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
@@ -22,10 +23,16 @@ export async function openDb(url: string, o: { migrate?: boolean } = {}): Promis
     if (o.migrate) await (await import('drizzle-orm/pglite/migrator')).migrate(db, { migrationsFolder });
     return { db: db as unknown as Db, close: () => pg.close() };
   }
-  const { Pool } = (await import('pg')).default;
   const { drizzle } = await import('drizzle-orm/node-postgres');
-  const pool = new Pool({ connectionString: url, max: 10 });
+  const pool = makePool(url);
   const db = drizzle(pool, { schema });
   if (o.migrate) await (await import('drizzle-orm/node-postgres/migrator')).migrate(db, { migrationsFolder });
   return { db: db as unknown as Db, close: () => pool.end() };
+}
+
+/** The production pool. A backend that drops while idle (Neon suspend, pooler restart) is logged and replaced, never fatal. */
+export function makePool(url: string): pg.Pool {
+  const pool = new pg.Pool({ connectionString: url, max: 20, connectionTimeoutMillis: 10_000, idleTimeoutMillis: 30_000 });
+  pool.on('error', (e) => console.error('[db] idle client error', e.message));
+  return pool;
 }
