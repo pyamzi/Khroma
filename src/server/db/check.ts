@@ -4,7 +4,7 @@ import { withStudio } from './tenancy.js';
 import { newId } from '../ids.js';
 
 class Rollback extends Error {}
-const rows = async <T>(db: Db, q: SQL) => { const r = await db.execute(q); return ('rows' in r ? r.rows : r) as T[]; };
+const rows = async <T>(db: Db, q: SQL): Promise<T[]> => { const r: unknown = await db.execute(q); return (Array.isArray(r) ? r : (r as { rows: T[] }).rows) as T[]; }; // node-postgres and PGlite shape results differently
 
 /** Deploy gate: returns what is wrong with tenant isolation on this database; empty means sound. Writes nothing that survives. */
 export async function checkTenancy(db: Db): Promise<string[]> {
