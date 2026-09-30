@@ -1,49 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import sharp from 'sharp';
-import { tmpDir } from '../helpers.js';
-import { makeTiffAs } from '../fixtures/make.js';
-import { openDb, migrate } from '../../src/server/db/client.js';
-import { loadConfig } from '../../src/server/config.js';
-import { createApp } from '../../src/server/app.js';
-import { createSetupToken } from '../../src/server/auth/bootstrap.js';
-import { runOnce } from '../../src/server/jobs/queue.js';
-import { makeEmailHandlers } from '../../src/server/email/send.js';
-import { memoryTransport } from '../../src/server/email/transport.js';
-import { rescan } from '../../src/server/fs/index.js';
-import { indexProjectMedia, makePreviewHandlers } from '../../src/server/fs/photos.js';
-import { writeJsonAtomic } from '../../src/server/fs/json.js';
-import { defaultClientJson, defaultProjectJson } from '../../src/server/fs/schemas.js';
+import { boot as bootApp } from './boot.js';
 
-const SMTP = { type: 'smtp', url: 'smtp://u:p@h:587', from: 'S <s@x>' };
-const linkFrom = (text: string) => text.match(/http:\/\/localhost:3000\/auth\/[A-Za-z0-9_-]+/)![0];
-const cookieOf = (res: Response) => res.headers.get('set-cookie')!.split(';')[0]!;
 const jpeg = (bg = '#c33') => sharp({ create: { width: 40, height: 30, channels: 3, background: bg } }).jpeg().toBuffer();
 
 async function boot() {
-  const photosDir = await tmpDir(); const dataDir = await tmpDir();
-  await mkdir(join(photosDir, 'Clients'), { recursive: true });
-  const config = loadConfig({ DATA_DIR: dataDir, PHOTOS_DIR: photosDir, BASE_URL: 'http://localhost:3000', SESSION_SECRET: 'x'.repeat(32) });
-  const db = openDb(':memory:'); migrate(db);
-  const app = createApp({ db, config, photosDir, webRoot: photosDir });
-  const mail = memoryTransport(); const handlers = { ...makeEmailHandlers(() => mail, 'localhost'), ...makePreviewHandlers(photosDir) };
-  const drain = async () => { while ((await runOnce(db, handlers)) === 'ran') { /* */ } };
-  const api = (path: string, init: RequestInit & { cookie?: string; bearer?: string } = {}) =>
-    app.request(path, { ...init, headers: { ...(init.body instanceof FormData ? {} : { 'content-type': 'application/json' }), ...(init.cookie ? { cookie: init.cookie, 'x-requested-with': 'fetch' } : {}), ...(init.bearer ? { authorization: `Bearer ${init.bearer}` } : {}), ...(init.headers ?? {}) } });
-  const json = async <T,>(res: Response) => (await res.json()) as T;
-  const token = createSetupToken(db);
-  await api('/api/setup', { method: 'POST', headers: { 'x-requested-with': 'fetch' }, body: JSON.stringify({ token, ownerEmail: 'owner@x.com', studioName: 'S', email: SMTP }) }); await drain();
-  const owner = cookieOf(await app.request(linkFrom(mail.sent.at(-1)!.text), { redirect: 'manual' }));
-  const c = defaultClientJson('Smith'); c.emails = ['sarah@x.com']; const p = defaultProjectJson('Wedding'); p.allowance = { included: 5, extraPrice: 0, slots: 5 };
-  const q = defaultProjectJson('Other');
-  await mkdir(join(photosDir, 'Clients/Smith/Wedding/raw'), { recursive: true }); await mkdir(join(photosDir, 'Clients/Smith/Other'), { recursive: true });
-  await writeJsonAtomic(join(photosDir, 'Clients/Smith/client.json'), c); await writeJsonAtomic(join(photosDir, 'Clients/Smith/Wedding/project.json'), p); await writeJsonAtomic(join(photosDir, 'Clients/Smith/Other/project.json'), q);
-  for (const n of ['a', 'b']) await makeTiffAs(join(photosDir, `Clients/Smith/Wedding/raw/${n}.dng`));
-  await rescan(db, photosDir); await indexProjectMedia(db, photosDir, p.id!); await drain();
-  const sarah = await (async () => { const before = mail.sent.length; await api('/api/auth/request', { method: 'POST', headers: { 'x-requested-with': 'fetch' }, body: JSON.stringify({ email: 'sarah@x.com' }) }); await drain(); return cookieOf(await app.request(linkFrom(mail.sent[before]!.text), { redirect: 'manual' })); })();
-  const mint = async (body: unknown) => (await json<{ id: string; token: string }>(await api('/api/access/tokens', { method: 'POST', body: JSON.stringify(body), cookie: owner })));
-  return { db, api, json, drain, owner, sarah, pid: p.id!, qid: q.id!, mint };
+  const b = await bootApp();
+  const { cookie: owner, studioId } = await b.signupOwner('owner@x.com', 'S');
+  const { projectId: pid, clientId } = await b.seedProject(owner, { emails: ['sarah@x.com'], included: 5 });
+  const q = await b.json<{ id: string }>(await b.post('/api/projects', { clientId, title: 'Other' }, owner));
+  await b.addCulling(studioId, pid, ['a', 'b']);
+  const sarah = await b.signIn('sarah@x.com');
+  const mint = async (body: unknown) => b.json<{ id: string; token: string }>(await b.post('/api/access/tokens', body, owner));
+  return { ...b, owner, sarah, pid, qid: q.id, mint };
 }
 type Photo = { id: string; relPath: string; pick: null | { locked: boolean } };
 

@@ -1,56 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpDir } from '../helpers.js';
-import { makeTiffAs } from '../fixtures/make.js';
-import { openDb, migrate } from '../../src/server/db/client.js';
-import { loadConfig } from '../../src/server/config.js';
-import { createApp } from '../../src/server/app.js';
-import { createSetupToken } from '../../src/server/auth/bootstrap.js';
-import { runOnce } from '../../src/server/jobs/queue.js';
-import { makeEmailHandlers } from '../../src/server/email/send.js';
-import { memoryTransport } from '../../src/server/email/transport.js';
-import { rescan } from '../../src/server/fs/index.js';
-import { indexProjectMedia, makePreviewHandlers } from '../../src/server/fs/photos.js';
-import { writeJsonAtomic } from '../../src/server/fs/json.js';
-import { defaultClientJson, defaultProjectJson } from '../../src/server/fs/schemas.js';
 import { events, sessions } from '../../src/server/db/schema.js';
+import { asSystem, withStudio } from '../../src/server/db/tenancy.js';
 import { hashToken } from '../../src/server/auth/magic.js';
-
-const SMTP = { type: 'smtp', url: 'smtp://u:p@h:587', from: 'S <s@x>' };
-const linkFrom = (text: string) => text.match(/http:\/\/localhost:3000\/auth\/[A-Za-z0-9_-]+/)![0];
-const cookieOf = (res: Response) => res.headers.get('set-cookie')!.split(';')[0]!;
+import { boot as bootApp } from './boot.js';
 
 async function boot() {
-  const photosDir = await tmpDir(); const dataDir = await tmpDir();
-  await mkdir(join(photosDir, 'Clients'), { recursive: true });
-  const config = loadConfig({ DATA_DIR: dataDir, PHOTOS_DIR: photosDir, BASE_URL: 'http://localhost:3000', SESSION_SECRET: 'x'.repeat(32) });
-  const db = openDb(':memory:'); migrate(db);
-  const app = createApp({ db, config, photosDir, webRoot: photosDir });
-  const mail = memoryTransport();
-  const handlers = { ...makeEmailHandlers(() => mail, 'localhost'), ...makePreviewHandlers(photosDir) };
-  const drain = async () => { while ((await runOnce(db, handlers)) === 'ran') { /* */ } };
-  const api = (path: string, init: RequestInit & { cookie?: string } = {}) =>
-    app.request(path, { ...init, headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch', ...(init.cookie ? { cookie: init.cookie } : {}), ...(init.headers ?? {}) } });
-  const post = (path: string, body: unknown, cookie: string) => api(path, { method: 'POST', body: JSON.stringify(body), cookie });
-  const json = async <T,>(res: Response) => (await res.json()) as T;
-  const token = createSetupToken(db);
-  await api('/api/setup', { method: 'POST', body: JSON.stringify({ token, ownerEmail: 'owner@x.com', studioName: 'S', email: SMTP }) }); await drain();
-  const owner = cookieOf(await app.request(linkFrom(mail.sent.at(-1)!.text), { redirect: 'manual' }));
-  const c = defaultClientJson('Smith'); c.emails = ['sarah@x.com', 'tom@x.com'];
-  const p = defaultProjectJson('Wedding'); p.allowance = { included: 2, extraPrice: 1500, slots: 2 };
-  await mkdir(join(photosDir, 'Clients/Smith/Wedding/raw'), { recursive: true });
-  await writeJsonAtomic(join(photosDir, 'Clients/Smith/client.json'), c);
-  await writeJsonAtomic(join(photosDir, 'Clients/Smith/Wedding/project.json'), p);
-  for (const n of ['a', 'b', 'c']) await makeTiffAs(join(photosDir, `Clients/Smith/Wedding/raw/${n}.dng`));
-  await rescan(db, photosDir); await indexProjectMedia(db, photosDir, p.id!); await drain();
-  const signIn = async (email: string) => {
-    const before = mail.sent.length;
-    await post('/api/auth/request', { email }, ''); await drain();
-    return cookieOf(await app.request(linkFrom(mail.sent[before]!.text), { redirect: 'manual' }));
-  };
-  const sarah = await signIn('sarah@x.com'); const tom = await signIn('tom@x.com');
-  return { db, api, post, json, mail, drain, owner, sarah, tom, pid: p.id! };
+  const b = await bootApp();
+  const { cookie: owner, studioId } = await b.signupOwner('owner@x.com', 'S');
+  const { projectId: pid } = await b.seedProject(owner, { emails: ['sarah@x.com', 'tom@x.com'], included: 2, extraPrice: 1500 });
+  await b.addCulling(studioId, pid, ['a', 'b', 'c']);
+  const sarah = await b.signIn('sarah@x.com'); const tom = await b.signIn('tom@x.com');
+  const viewed = async () => (await withStudio(b.db, studioId, (tx) => tx.select().from(events))).filter((e) => e.type === 'viewed');
+  return { ...b, owner, sarah, tom, pid, studioId, viewed };
 }
 type Summary = { selectionVersion: number; confirmed: number; pending: number; entitlement: number };
 type PhotoItem = { id: string; pick: null | { state: string; byEmail: string; locked: boolean }; comments: { open: number; total: number }; previewReady: boolean };
@@ -58,12 +19,12 @@ type Detail = { selection: Summary; state: { production: string }; comments: { c
 
 describe('portal api', () => {
   it('walks a shared culling round: pick, conflict, extras request, grant, finish, locked', async () => {
-    const { db, api, post, json, mail, drain, owner, sarah, tom, pid } = await boot();
+    const { api, post, json, mail, drain, owner, sarah, tom, pid, viewed } = await boot();
     let detail = await json<Detail>(await api(`/api/projects/${pid}`, { cookie: sarah }));
     expect(detail.state.production).toBe('culling'); expect(detail.selection).toMatchObject({ entitlement: 2, confirmed: 0 });
-    expect(db.select().from(events).all().filter((e) => e.type === 'viewed')).toHaveLength(1);
+    expect(await viewed()).toHaveLength(1);
     await api(`/api/projects/${pid}`, { cookie: sarah });
-    expect(db.select().from(events).all().filter((e) => e.type === 'viewed')).toHaveLength(1); // throttled
+    expect(await viewed()).toHaveLength(1); // throttled
     const photos = await json<PhotoItem[]>(await api(`/api/projects/${pid}/photos`, { cookie: sarah }));
     expect(photos).toHaveLength(3); expect(photos.every((p) => p.previewReady)).toBe(true);
     const [a, b, c] = photos.map((p) => p.id) as [string, string, string];
@@ -123,8 +84,8 @@ describe('portal api', () => {
   });
 
   it('a project-scoped guest session can view but not pick, finish, or comment', async () => {
-    const { db, api, post, json, pid } = await boot();
-    db.insert(sessions).values({ id: 'g1', kind: 'guest', subject: 'Guest 1', projectId: pid, tokenHash: hashToken('guest-token'), expiresAt: '2999-01-01T00:00:00Z' }).run();
+    const { db, api, post, json, pid, studioId } = await boot();
+    await asSystem(db, (tx) => tx.insert(sessions).values({ id: 'g1', studioId, kind: 'guest', subject: 'Guest 1', projectId: pid, tokenHash: hashToken('guest-token'), expiresAt: '2999-01-01T00:00:00Z' }));
     const guest = 'og_session=guest-token';
     const photos = await json<PhotoItem[]>(await api(`/api/projects/${pid}/photos`, { cookie: guest }));
     expect(photos).toHaveLength(3);

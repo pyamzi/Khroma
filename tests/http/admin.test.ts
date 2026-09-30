@@ -1,87 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { mkdir, rename, cp, stat } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpDir } from '../helpers.js';
-import { makeTiffAs, makeJpeg } from '../fixtures/make.js';
-import { openDb, migrate } from '../../src/server/db/client.js';
-import { loadConfig } from '../../src/server/config.js';
-import { createApp } from '../../src/server/app.js';
-import { createSetupToken } from '../../src/server/auth/bootstrap.js';
-import { runOnce } from '../../src/server/jobs/queue.js';
-import { makeEmailHandlers } from '../../src/server/email/send.js';
-import { memoryTransport } from '../../src/server/email/transport.js';
-import { rescan } from '../../src/server/fs/index.js';
-import { indexProjectMedia, makePreviewHandlers } from '../../src/server/fs/photos.js';
-import { writeJsonAtomic } from '../../src/server/fs/json.js';
-import { defaultClientJson, defaultProjectJson } from '../../src/server/fs/schemas.js';
-import { photos } from '../../src/server/db/schema.js';
-
-const SMTP = { type: 'smtp', url: 'smtp://u:p@h:587', from: 'S <s@x>' };
-const linkFrom = (text: string) => text.match(/http:\/\/localhost:3000\/auth\/[A-Za-z0-9_-]+/)![0];
-const cookieOf = (res: Response) => res.headers.get('set-cookie')!.split(';')[0]!;
+import { boot as bootApp } from './boot.js';
+import { withStudio } from '../../src/server/db/tenancy.js';
+import { addPhoto } from '../../src/server/domain/photos.js';
+import { jpegBytes } from '../fixtures/make.js';
 
 async function boot() {
-  const photosDir = await tmpDir(); const dataDir = await tmpDir();
-  await mkdir(join(photosDir, 'Clients'), { recursive: true });
-  const config = loadConfig({ DATA_DIR: dataDir, PHOTOS_DIR: photosDir, BASE_URL: 'http://localhost:3000', SESSION_SECRET: 'x'.repeat(32) });
-  const db = openDb(':memory:'); migrate(db);
-  const app = createApp({ db, config, photosDir, webRoot: photosDir });
-  const mail = memoryTransport();
-  const handlers = { ...makeEmailHandlers(() => mail, 'localhost'), ...makePreviewHandlers(photosDir) };
-  const drain = async () => { while ((await runOnce(db, handlers)) === 'ran') { /* */ } };
-  const api = (path: string, init: RequestInit & { cookie?: string } = {}) =>
-    app.request(path, { ...init, headers: { ...(init.body instanceof FormData ? {} : { 'content-type': 'application/json' }), 'x-requested-with': 'fetch', ...(init.cookie ? { cookie: init.cookie } : {}), ...(init.headers ?? {}) } });
-  const post = (path: string, body: unknown, cookie: string, method = 'POST') => api(path, { method, body: JSON.stringify(body), cookie });
-  const json = async <T,>(res: Response) => (await res.json()) as T;
-  const token = createSetupToken(db);
-  await api('/api/setup', { method: 'POST', body: JSON.stringify({ token, ownerEmail: 'owner@x.com', studioName: 'S', email: SMTP }) }); await drain();
-  const owner = cookieOf(await app.request(linkFrom(mail.sent.at(-1)!.text), { redirect: 'manual' }));
-  const c = defaultClientJson('Smith'); c.emails = ['sarah@x.com']; const o = defaultClientJson('Other');
-  const p = defaultProjectJson('Wedding'); p.allowance = { included: 2, extraPrice: 1500, slots: 2 };
-  await mkdir(join(photosDir, 'Clients/Smith/Wedding/raw'), { recursive: true }); await mkdir(join(photosDir, 'Clients/Smith/Wedding/finals'), { recursive: true }); await mkdir(join(photosDir, 'Clients/Other'), { recursive: true });
-  await writeJsonAtomic(join(photosDir, 'Clients/Smith/client.json'), c); await writeJsonAtomic(join(photosDir, 'Clients/Other/client.json'), o);
-  await writeJsonAtomic(join(photosDir, 'Clients/Smith/Wedding/project.json'), p);
-  await makeTiffAs(join(photosDir, 'Clients/Smith/Wedding/raw/a.dng')); await makeJpeg(join(photosDir, 'Clients/Smith/Wedding/finals/f.jpg'));
-  await rescan(db, photosDir); await indexProjectMedia(db, photosDir, p.id!); await drain();
-  const signIn = async (email: string) => { const before = mail.sent.length; await post('/api/auth/request', { email }, ''); await drain(); return cookieOf(await app.request(linkFrom(mail.sent[before]!.text), { redirect: 'manual' })); };
-  return { db, app, api, post, json, mail, drain, owner, signIn, pid: p.id!, oid: o.id!, photosDir };
+  const b = await bootApp();
+  const { cookie: owner, studioId } = await b.signupOwner('owner@x.com', 'S');
+  const { projectId: pid } = await b.seedProject(owner, { emails: ['sarah@x.com'], included: 2, extraPrice: 1500 });
+  const [raw] = await b.addCulling(studioId, pid, ['a']);
+  const fin = await withStudio(b.db, studioId, async (tx) => addPhoto(tx, b.storage, { projectId: pid, relPath: 'finals/f.jpg', stage: 'final', bytes: await jpegBytes(), name: 'f.jpg' }));
+  await b.drain();
+  return { ...b, owner, studioId, pid, rawId: raw!, finalId: fin.photoId };
 }
 
 describe('admin api', () => {
-  it('files: list, mkdir, upload, download, move with confirm, trash, restore, reserved', async () => {
-    const { api, post, json, owner, pid, oid, signIn } = await boot();
-    const sarah = await signIn('sarah@x.com');
-    expect((await api('/api/files', { cookie: sarah })).status).toBe(401);
-    let r = await api('/api/files', { cookie: owner });
-    expect((await json<{ entries: { name: string }[] }>(r)).entries.map((e) => e.name)).toEqual(['Clients']);
-    expect((await post('/api/files/mkdir', { path: 'Marketing' }, owner)).status).toBe(201);
-    const fd = new FormData(); fd.append('file', new Blob(['hello']), 'notes.txt');
-    r = await api('/api/files/upload?path=Marketing', { method: 'POST', body: fd, cookie: owner });
-    expect(r.status).toBe(201); expect(await json<{ name: string }>(r)).toMatchObject({ name: 'notes.txt', size: 5 });
-    r = await api('/api/files/download?path=Marketing/notes.txt', { cookie: owner });
-    expect(r.status).toBe(200); expect(r.headers.get('content-disposition')).toMatch(/^attachment/); expect(r.headers.get('x-content-type-options')).toBe('nosniff'); expect(await r.text()).toBe('hello');
-    r = await api('/api/files/download?path=Clients/Smith/Wedding/finals/f.jpg', { cookie: owner });
-    expect(r.headers.get('content-type')).toBe('image/jpeg'); expect(r.headers.get('content-disposition')).toMatch(/^inline/);
-    expect((await api('/api/files/download?path=Clients/Smith/client.json', { cookie: owner })).status).toBe(422);
-    const bad = new FormData(); bad.append('file', new Blob(['#!/bin/sh']), 'run.sh');
-    expect((await api('/api/files/upload?path=Marketing', { method: 'POST', body: bad, cookie: owner })).status).toBe(415);
-    r = await post('/api/files/move', { from: 'Clients/Smith/Wedding', to: 'Clients/Other/Wedding' }, owner);
-    expect(r.status).toBe(409); expect(await json<{ error: string }>(r)).toEqual({ error: 'needs_confirm' });
-    r = await post('/api/files/move', { from: 'Clients/Smith/Wedding', to: 'Clients/Other/Wedding', confirm: true }, owner);
-    expect(await json<{ transfer: string }>(r)).toMatchObject({ transfer: 'approved' });
-    const cl = await json<{ projects: { id: string }[] }>(await api(`/api/clients/${oid}`, { cookie: owner }));
-    expect(cl.projects.map((p) => p.id)).toEqual([pid]);
-    r = await post('/api/files/trash', { path: 'Marketing' }, owner); const { trashRel } = await json<{ trashRel: string }>(r);
-    expect((await json<{ original: string }[]>(await api('/api/files/trash', { cookie: owner })))[0]?.original).toBe('Marketing');
-    expect((await post('/api/files/restore', { trashRel }, owner)).status).toBe(200);
-    expect((await post('/api/files/mkdir', { path: 'Clients/Other/Wedding/.cache/x' }, owner)).status).toBe(422);
-    expect((await post('/api/files/mkdir', { path: '../x' }, owner)).status).toBe(400);
-  });
-  it('clients and projects: create with defaults, patch human fields, price, shot, order, cover, shared files, events, insights', async () => {
-    const { api, post, json, owner, signIn, db, pid, photosDir } = await boot();
+  it('clients and projects: create with defaults, patch human fields, price, shot, order, cover, events, insights', async () => {
+    const { api, post, json, owner, signIn, pid, finalId } = await boot();
     await post('/api/settings/studio', { defaultIncluded: 30, defaultExtraPrice: 2000 }, owner, 'PATCH');
-    let r = await post('/api/clients', { name: 'Jones', emails: ['j@x.com'] }, owner); expect(r.status).toBe(201); const cl = await json<{ id: string }>(r);
-    r = await post('/api/projects', { clientId: cl.id, title: 'Headshots', date: '2026-09-01' }, owner); expect(r.status).toBe(201); const np = await json<{ id: string; folderPath: string }>(r);
+    let r = await post('/api/clients', { name: 'Jones', emails: ['j@x.com'], phone: '555', notes: 'n' }, owner); expect(r.status).toBe(201); const cl = await json<{ id: string }>(r);
+    expect(await json<{ phone: string; notes: string }>(await api(`/api/clients/${cl.id}`, { cookie: owner }))).toMatchObject({ phone: '555', notes: 'n', projects: [] });
+    r = await post('/api/projects', { clientId: cl.id, title: 'Headshots', date: '2026-09-01' }, owner); expect(r.status).toBe(201); const np = await json<{ id: string }>(r);
     let d = await json<{ selection: { included: number; extraPrice: number }; title: string }>(await api(`/api/projects/${np.id}`, { cookie: owner }));
     expect(d.selection).toMatchObject({ included: 30, extraPrice: 2000 });
     expect((await post(`/api/projects/${np.id}`, { title: 'Headshots 2026', downloads: 'none' }, owner, 'PATCH')).status).toBe(200);
@@ -90,49 +29,23 @@ describe('admin api', () => {
     expect((await post(`/api/projects/${np.id}/shot`, {}, owner)).status).toBe(200);
     expect((await post(`/api/projects/${np.id}/shot`, {}, owner)).status).toBe(422);
     d = await json<typeof d>(await api(`/api/projects/${np.id}`, { cookie: owner })); expect(d.title).toBe('Headshots 2026'); expect(d.selection.extraPrice).toBe(900);
-    const fin = db.select().from(photos).all().find((p) => p.stage === 'final')!;
-    expect((await post(`/api/projects/${pid}/photos/order`, { ids: [fin.id] }, owner)).status).toBe(200);
-    expect((await post(`/api/projects/${pid}/cover`, { photoId: fin.id }, owner)).status).toBe(200);
-    await mkdir(join(photosDir, 'Clients/Smith/Wedding/documents'), { recursive: true });
-    const fd = new FormData(); fd.append('file', new Blob(['%PDF-1.4']), 'Timeline.pdf');
-    await api('/api/files/upload?path=Clients/Smith/Wedding/documents', { method: 'POST', body: fd, cookie: owner });
+    expect((await post(`/api/projects/${pid}/photos/order`, { ids: [finalId] }, owner)).status).toBe(200);
+    expect((await post(`/api/projects/${pid}/cover`, { photoId: finalId }, owner)).status).toBe(200);
     const sarah = await signIn('sarah@x.com');
-    expect(await json<unknown[]>(await api(`/api/projects/${pid}/files`, { cookie: sarah }))).toEqual([]);
-    expect((await post(`/api/projects/${pid}/share-file`, { rel: 'documents/Timeline.pdf', shared: true }, owner)).status).toBe(200);
-    expect(await json<{ rel: string }[]>(await api(`/api/projects/${pid}/files`, { cookie: sarah }))).toEqual([{ rel: 'documents/Timeline.pdf', size: 8 }]);
-    expect((await json<{ rel: string; shared: boolean }[]>(await api(`/api/projects/${pid}/files`, { cookie: owner })))[0]).toMatchObject({ rel: 'documents/Timeline.pdf', shared: true });
     expect((await api(`/api/projects/${pid}/events`, { cookie: sarah })).status).toBe(401);
     expect((await json<unknown[]>(await api(`/api/projects/${pid}/events`, { cookie: owner }))).length).toBeGreaterThan(0);
     await api(`/api/projects/${pid}`, { cookie: sarah });
     expect((await json<{ views: number }>(await api(`/api/projects/${pid}/insights`, { cookie: owner }))).views).toBe(1);
   });
-  it('identity: remap a renamed RAW and adopt a duplicate', async () => {
-    const { api, post, json, owner, db, pid, photosDir } = await boot();
-    const raw = db.select().from(photos).all().find((p) => p.stage === 'culling')!;
-    await rename(join(photosDir, 'Clients/Smith/Wedding/raw/a.dng'), join(photosDir, 'Clients/Smith/Wedding/raw/z.dng'));
-    await indexProjectMedia(db, photosDir, pid);
-    const fresh = db.select().from(photos).all().find((p) => p.relPath === 'raw/z.dng')!;
-    expect((await post(`/api/projects/${pid}/photos/remap`, { missingPhotoId: raw.id, newPhotoId: fresh.id }, owner)).status).toBe(200);
-    expect(db.select().from(photos).all().filter((p) => p.stage === 'culling')).toEqual([expect.objectContaining({ id: raw.id, relPath: 'raw/z.dng' })]);
-    await cp(join(photosDir, 'Clients/Smith/Wedding'), join(photosDir, 'Clients/Smith/Wedding copy'), { recursive: true });
-    await rescan(db, photosDir);
-    expect((await json<{ kind: string }[]>(await api('/api/issues', { cookie: owner }))).filter((i) => i.kind === 'duplicate_id')).toHaveLength(2);
-    const r = await post('/api/issues/adopt', { path: 'Clients/Smith/Wedding copy' }, owner);
-    expect(r.status).toBe(200); expect((await json<{ id: string }>(r)).id).not.toBe(pid);
-    expect(await json<unknown[]>(await api('/api/issues', { cookie: owner }))).toEqual([]);
-    expect((await post('/api/issues/adopt', { path: 'Clients/Smith/Wedding copy' }, owner)).status).toBe(422);
-  });
-  it('settings: owner-only studio/email, delivery test job, team roles, jobs retry', async () => {
-    const { app, api, post, json, owner, mail, drain } = await boot();
+  it('settings: owner-only studio, team roles, jobs', async () => {
+    const { api, post, json, owner, drain, redeemLatest } = await boot();
     let r = await post('/api/users/invite', { email: 'sam@x.com', role: 'member' }, owner); expect(r.status).toBe(201); const sam = await json<{ id: string }>(r);
-    await drain(); const samCookie = cookieOf(await app.request(linkFrom(mail.sent.at(-1)!.text), { redirect: 'manual' }));
+    await drain(); const samCookie = await redeemLatest('sam@x.com');
     expect((await post('/api/settings/studio', { studioName: 'X' }, samCookie, 'PATCH')).status).toBe(403);
     expect((await post('/api/settings/studio', { studioName: 'Klaus Studio' }, owner, 'PATCH')).status).toBe(200);
     expect((await json<{ studio: { studioName: string } }>(await api('/api/settings', { cookie: samCookie }))).studio.studioName).toBe('Klaus Studio');
-    r = await post('/api/settings/email/test', {}, owner); const { jobId } = await json<{ jobId: string }>(r);
-    await drain();
-    expect((await json<{ email: { lastTest: { jobId: string; state: string } } }>(await api('/api/settings', { cookie: owner }))).email.lastTest).toMatchObject({ jobId, state: 'done' });
-    expect(mail.sent.at(-1)).toMatchObject({ to: 'owner@x.com' });
+    expect((await json<{ studio: { name: string } }>(await api('/api/me', { cookie: samCookie }))).studio.name).toBe('Klaus Studio');
+    expect((await post('/api/users/invite', { email: 'sam@x.com', role: 'member' }, owner)).status).toBe(409);
     expect((await post(`/api/users/${sam.id}`, { notifyDownloads: 'each' }, samCookie, 'PATCH')).status).toBe(200);
     expect((await post(`/api/users/${sam.id}`, { role: 'owner' }, samCookie, 'PATCH')).status).toBe(403);
     const users = await json<{ id: string; email: string }[]>(await api('/api/users', { cookie: owner }));
@@ -144,11 +57,10 @@ describe('admin api', () => {
     expect((await json<unknown[]>(await api('/api/jobs?state=done', { cookie: owner }))).length).toBeGreaterThan(0);
   });
   it('dashboard returns the four blocks', async () => {
-    const { api, post, json, owner, signIn, pid, db } = await boot();
+    const { api, post, json, owner, signIn, pid, rawId } = await boot();
     const sarah = await signIn('sarah@x.com');
-    const raw = db.select().from(photos).all().find((p) => p.stage === 'culling')!;
     const sel = await json<{ summary: { selectionVersion: number } }>(await api(`/api/projects/${pid}/selection`, { cookie: sarah }));
-    await post(`/api/projects/${pid}/picks`, { photoId: raw.id, picked: true, selectionVersion: sel.summary.selectionVersion }, sarah);
+    await post(`/api/projects/${pid}/picks`, { photoId: rawId, picked: true, selectionVersion: sel.summary.selectionVersion }, sarah);
     const sel2 = await json<{ summary: { selectionVersion: number } }>(await api(`/api/projects/${pid}/selection`, { cookie: sarah }));
     expect((await post(`/api/projects/${pid}/finish`, { selectionVersion: sel2.summary.selectionVersion }, sarah)).status).toBe(200);
     expect((await api('/api/dashboard', { cookie: sarah })).status).toBe(401);

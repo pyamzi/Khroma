@@ -1,28 +1,44 @@
-import { Hono } from 'hono';
+import { Hono, type ErrorHandler, type MiddlewareHandler } from 'hono';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { Db } from './db/client.js';
 import type { Config } from './config.js';
-import { sessionMiddleware, dbMiddleware, type AppEnv } from './http/session.js';
-import { setupState } from './auth/bootstrap.js';
-import { health } from './http/routes/health.js';
-import { setup } from './http/routes/setup.js';
-import { auth } from './http/routes/auth.js';
+import type { Storage } from './storage.js';
+import { withStudio, anonTx } from './db/tenancy.js';
+import { sessionMiddleware, type AppEnv } from './http/session.js';
+import { systemRoutes, meRoutes } from './http/routes/auth.js';
 import { projectRoutes } from './http/routes/projects.js';
 import { photoRoutes } from './http/routes/photos.js';
-import { issueRoutes } from './http/routes/issues.js';
 import { selectionRoutes } from './http/routes/selection.js';
 import { commentRoutes } from './http/routes/comments.js';
-import { fileRoutes } from './http/routes/files.js';
 import { adminRoutes } from './http/routes/admin.js';
 import { settingsRoutes } from './http/routes/settings.js';
 import { dashboardRoutes } from './http/routes/dashboard.js';
 import { pluginRoutes } from './http/routes/plugin.js';
 
-export type AppDeps = { db: Db; config: Config; photosDir: string; webRoot?: string };
+export type AppDeps = { db: Db; config: Config; storage: Storage; webRoot?: string };
 
-export function createApp({ db, config, photosDir, webRoot = './dist/web' }: AppDeps): Hono<AppEnv> {
+class Rollback extends Error {}
+/**
+ * One transaction per request, bound to the session's Studio (or to no Studio). A request that throws or answers
+ * 4xx/5xx changes nothing: the transaction rolls back.
+ */
+export function requestTx(root: Db): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const run = async (tx: Db) => {
+      c.set('db', tx); await next();
+      if (c.error) throw c.error;
+      if (c.res.status >= 400) throw new Rollback();
+    };
+    const s = c.get('session');
+    try { if (s) await withStudio(root, s.studioId, run); else await anonTx(root, run); }
+    catch (e) { if (!(e instanceof Rollback) && e !== c.error) throw e; } // the response is already set; onError already ran
+  };
+}
+export const onError: ErrorHandler<AppEnv> = (e, c) => { console.error('[http]', c.req.method, c.req.path, e); return c.json({ error: 'internal' }, 500); };
+
+export function createApp({ db, config, storage, webRoot = './dist/web' }: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
-  app.use('*', dbMiddleware(db));
+  app.onError(onError);
   app.use('*', async (c, next) => {
     await next();
     c.header('x-content-type-options', 'nosniff');
@@ -37,14 +53,12 @@ export function createApp({ db, config, photosDir, webRoot = './dist/web' }: App
     await next();
   });
   app.use('*', sessionMiddleware(db));
-  app.use('/api/*', async (c, next) => {
-    if (c.req.path !== '/api/setup' && setupState(db) !== 'complete') return c.json({ error: 'setup_required', setup: setupState(db) }, 503);
-    await next();
-  });
-  app.route('/', health(config)); app.route('/', setup(config)); app.route('/', auth(config));
-  app.route('/', projectRoutes(photosDir)); app.route('/', photoRoutes(photosDir)); app.route('/', issueRoutes());
-  app.route('/', selectionRoutes(config, photosDir)); app.route('/', commentRoutes());
-  app.route('/', fileRoutes(photosDir)); app.route('/', adminRoutes(photosDir)); app.route('/', settingsRoutes(config)); app.route('/', dashboardRoutes()); app.route('/', pluginRoutes(photosDir));
+  app.use('*', async (c, next) => { c.set('storage', storage); await next(); });
+  app.route('/', systemRoutes(config)); // registered before the request transaction: these open their own system transactions
+  app.use('/api/*', requestTx(db));
+  app.route('/', meRoutes()); app.route('/', projectRoutes()); app.route('/', photoRoutes());
+  app.route('/', selectionRoutes(config)); app.route('/', commentRoutes());
+  app.route('/', adminRoutes()); app.route('/', settingsRoutes(config)); app.route('/', dashboardRoutes()); app.route('/', pluginRoutes());
   app.use('/assets/*', serveStatic({ root: webRoot }));
   app.get('*', serveStatic({ root: webRoot, path: 'index.html' }));
   return app;
