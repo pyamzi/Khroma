@@ -7,7 +7,8 @@ import { newId } from '../ids.js';
 export class AdminError extends Error { constructor(public code: 'invalid' | 'exists' | 'not_found' | 'guard') { super(code); this.name = 'AdminError'; } }
 export type EventRow = typeof events.$inferSelect;
 
-const proj = async (db: Db, id: string) => { const [r] = await db.select().from(projects).where(eq(projects.id, id)).limit(1); if (!r) throw new AdminError('not_found'); return r; };
+/** `lock` for read-modify-write of metadata_json: under READ COMMITTED an unlocked writer would overwrite a concurrent edit. */
+const proj = async (db: Db, id: string, lock = false) => { const q = db.select().from(projects).where(eq(projects.id, id)).limit(1); const [r] = lock ? await q.for('update') : await q; if (!r) throw new AdminError('not_found'); return r; };
 const emails = (xs: string[]) => [...new Set(xs.map((e) => e.trim().toLowerCase()).filter(Boolean))];
 type ClientFields = { name: string; emails: string[]; phone: string; notes: string };
 
@@ -44,18 +45,22 @@ export const HUMAN_PATCH = ['title', 'date', 'assignedTo', 'downloads', 'comment
 export async function updateProjectHuman(db: Db, o: { projectId: string; patch: Partial<ProjectMeta>; actor: string }): Promise<ProjectMeta> {
   const keys = Object.keys(o.patch);
   if (keys.length === 0 || keys.some((k) => !(HUMAN_PATCH as readonly string[]).includes(k))) throw new AdminError('invalid');
-  const row = await proj(db, o.projectId);
-  const merged = ProjectMeta.safeParse({ ...ProjectMeta.parse(row.metadataJson), ...o.patch }); if (!merged.success) throw new AdminError('invalid');
-  await db.update(projects).set({ metadataJson: merged.data as Record<string, unknown>, date: merged.data.date }).where(eq(projects.id, o.projectId));
-  await db.insert(events).values({ projectId: o.projectId, actor: o.actor, type: 'project_updated', payload: { keys } });
-  return merged.data;
+  return db.transaction(async (d) => {
+    const row = await proj(d, o.projectId, true);
+    const merged = ProjectMeta.safeParse({ ...ProjectMeta.parse(row.metadataJson), ...o.patch }); if (!merged.success) throw new AdminError('invalid');
+    await d.update(projects).set({ metadataJson: merged.data as Record<string, unknown>, date: merged.data.date }).where(eq(projects.id, o.projectId));
+    await d.insert(events).values({ projectId: o.projectId, actor: o.actor, type: 'project_updated', payload: { keys } });
+    return merged.data;
+  });
 }
 
 export async function setExtraPrice(db: Db, o: { projectId: string; extraPrice: number; actor: string }): Promise<void> {
   if (!Number.isInteger(o.extraPrice) || o.extraPrice < 0) throw new AdminError('invalid');
-  const row = await proj(db, o.projectId); const meta = ProjectMeta.parse(row.metadataJson); meta.allowance.extraPrice = o.extraPrice;
-  await db.update(projects).set({ metadataJson: meta as Record<string, unknown> }).where(eq(projects.id, o.projectId));
-  await db.insert(events).values({ projectId: o.projectId, actor: o.actor, type: 'price_changed', payload: { extraPrice: o.extraPrice } });
+  await db.transaction(async (d) => {
+    const row = await proj(d, o.projectId, true); const meta = ProjectMeta.parse(row.metadataJson); meta.allowance.extraPrice = o.extraPrice;
+    await d.update(projects).set({ metadataJson: meta as Record<string, unknown> }).where(eq(projects.id, o.projectId));
+    await d.insert(events).values({ projectId: o.projectId, actor: o.actor, type: 'price_changed', payload: { extraPrice: o.extraPrice } });
+  });
 }
 
 export async function markShot(db: Db, o: { projectId: string; actor: string }): Promise<void> {

@@ -24,11 +24,11 @@ afterEach(async () => {
 
 let template: Promise<PGlite> | undefined; // one migrated database per test worker, cloned per test (~90 ms)
 /** A fresh migrated database. Inside a test it closes when the test ends. */
-export async function testDb(): Promise<Db> {
+export async function testDb(o: { log?: string[] } = {}): Promise<Db> {
   template ??= (async () => { const pg = new PGlite(); await migrate(drizzle(pg), { migrationsFolder }); return pg; })();
   const pg = await (await template).clone();
   try { onTestFinished(() => pg.close()); } catch { /* called outside a test: caller owns it */ }
-  return drizzle(pg, { schema }) as unknown as Db;
+  return drizzle(pg, { schema, ...(o.log ? { logger: { logQuery: (q: string) => void o.log!.push(q) } } : {}) }) as unknown as Db;
 }
 
 let seq = 0;
@@ -53,7 +53,7 @@ export async function pinStudio(db: Db, studioId: string): Promise<void> {
   await db.execute(sql`select set_config('app.studio_id', ${studioId}, false)`);
 }
 /** A fresh database pinned to a new Studio (owner owner@x). */
-export async function studioTestDb(o: { name?: string; ownerEmail?: string } = {}) {
-  const db = await testDb(); const s = await makeStudio(db, { ownerEmail: 'owner@x', ...o }); await pinStudio(db, s.studioId);
+export async function studioTestDb(o: { name?: string; ownerEmail?: string; log?: string[] } = {}) {
+  const db = await testDb({ log: o.log }); const s = await makeStudio(db, { ownerEmail: 'owner@x', ...o }); await pinStudio(db, s.studioId);
   return { db, ...s };
 }

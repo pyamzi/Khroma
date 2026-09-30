@@ -71,4 +71,13 @@ describe('admin domain', () => {
     expect(i.byDay).toEqual([{ day: '2026-06-01', views: 1, picks: 0, comments: 0 }, { day: '2026-06-02', views: 2, picks: 1, comments: 0 }, { day: '2026-06-03', views: 0, picks: 0, comments: 1 }]);
     expect(i.visitors[0]).toMatchObject({ actor: 's@x', views: 2 });
   });
+  it('metadata writes lock the project row, so two editors never silently revert each other', async () => {
+    const log: string[] = []; const { db } = await studioTestDb({ log });
+    const c = await createClient(db, { name: 'A', emails: [], actor: 'o' });
+    const p = await createProject(db, { clientId: c.id, title: 'W', actor: 'o' });
+    const locks = async (run: () => Promise<unknown>) => { log.length = 0; await run(); return log.some((q) => /from "projects"/.test(q) && /for update/.test(q)); };
+    expect(await locks(() => updateProjectHuman(db, { projectId: p.id, patch: { title: 'W2' }, actor: 'o' }))).toBe(true);
+    expect(await locks(() => setExtraPrice(db, { projectId: p.id, extraPrice: 100, actor: 'o' }))).toBe(true);
+    expect(await locks(() => setCover(db, { projectId: p.id, photoId: null, actor: 'o' }))).toBe(true);
+  });
 });
