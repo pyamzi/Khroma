@@ -11,6 +11,7 @@ type Dl = { url?: string; preparing?: true };
 const WHY: Record<string, string> = {
   unavailable: 'This gallery is no longer available.', no_finals: 'There are no photos to download yet.', disabled: 'Downloads are turned off for this gallery.',
   review: 'Downloads open once your photographer has reviewed your account.', unpaid: 'Downloads open once your balance is paid.',
+  too_large: 'This gallery is too large to download as one ZIP. Download photos one at a time.',
 };
 const POLL_MS = 3000; const POLL_TRIES = 100; // about 5 minutes
 

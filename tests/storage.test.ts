@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { memoryStorage, r2Storage, photoKey, zipKey } from '../src/server/storage.js';
+import { tmpDir } from './helpers.js';
 
 const text = async (s: ReadableStream<Uint8Array>) => new Response(s).text();
 
@@ -13,6 +16,11 @@ describe('memoryStorage', () => {
     expect(await s.get('nope')).toBeNull(); expect(await s.getBytes('nope')).toBeNull();
     await s.delete('k/a'); await s.delete('k/a');
     expect(s.keys()).toEqual([]);
+  });
+  it('putFile stores a file; size reports bytes or null', async () => {
+    const s = memoryStorage(); const f = join(await tmpDir(), 'z'); await writeFile(f, 'zipbytes');
+    await s.putFile('z/a.zip', f, 'application/zip');
+    expect([await s.size('z/a.zip'), (await s.get('z/a.zip'))!.contentType, await s.size('nope')]).toEqual([8, 'application/zip', null]);
   });
 });
 
@@ -78,6 +86,15 @@ describe('r2Storage', () => {
     expect(calls.at(-1)!.method).toBe('HEAD');
     expect(await make(404).exists('k')).toBe(false);
     await expect(make(500).exists('k')).rejects.toThrow(/500/);
+  });
+  it('r2 putFile streams the file with its length and an unsigned payload; size reads HEAD', async () => {
+    const f = join(await tmpDir(), 'z'); await writeFile(f, 'zipbytes'); let got: { req: Request; body: string } | null = null;
+    const s = r2Storage({ ...cfg, fetch: (async (input: RequestInfo | URL, init?: RequestInit) => { const req = new Request(input, init); got = { req, body: await req.text() }; return new Response(null, { status: 200 }); }) as typeof fetch });
+    await s.putFile('z/s/p/h.zip', f, 'application/zip');
+    expect(got!.req.method).toBe('PUT'); expect(got!.body).toBe('zipbytes');
+    expect(got!.req.headers.get('x-amz-content-sha256')).toBe('UNSIGNED-PAYLOAD'); expect(got!.req.headers.get('content-type')).toBe('application/zip');
+    calls.length = 0; expect(await make(200, 'abcd').size('k')).toBe(4); expect(calls[0]!.method).toBe('HEAD');
+    expect(await make(404).size('k')).toBeNull();
   });
   it('r2 copy fails loudly on a missing source or a 200 with an <Error> body', async () => {
     await expect(make(404).copy('s/gone', 's/c/y')).rejects.toThrow(/source missing/);

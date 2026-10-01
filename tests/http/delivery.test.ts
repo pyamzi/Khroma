@@ -4,7 +4,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { eq } from 'drizzle-orm';
 import { runOnce } from '../../src/server/jobs/queue.js';
+import { jobs } from '../../src/server/db/schema.js';
+import { asSystem } from '../../src/server/db/tenancy.js';
 import { tmpDir } from '../helpers.js';
 import { _hits } from '../../src/server/http/routes/auth.js';
 import { boot as bootApp } from './boot.js';
@@ -181,6 +184,40 @@ describe('client gallery', () => {
     await heart(f1, false, sarah2);
     expect(await favs(sarah)).toEqual({ counts: { [f1]: 1, [f2]: 2 }, mine: [] });
     expect((await favs(owner)).mine).toEqual([f2]);
+  });
+
+  it('a ZIP is streamed to storage with putFile', async () => {
+    const { storage, f1, publish, download, drain } = await boot();
+    const put = storage.putFile; const files: string[] = []; storage.putFile = async (k, f, t) => { files.push(k); await put(k, f, t); };
+    await publish([f1]); await download({}); await drain();
+    expect(files).toEqual([expect.stringMatching(/^z\/.+\.zip$/)]); expect((await download({})).status).toBe(200);
+  });
+
+  it('a live set over 3 GiB is never zipped: the job goes to review and the next request is 403 too_large', async () => {
+    const { json, db, storage, f1, publish, download, drain } = await boot();
+    await publish([f1]);
+    storage.size = async () => 3 * 1024 ** 3 + 1;
+    const get = storage.get; let originals = 0; storage.get = async (k) => { if (k.endsWith('/original')) originals++; return get(k); };
+    expect((await download({})).status).toBe(202); await drain();
+    expect(originals).toBe(0);
+    const job = async () => (await asSystem(db, (tx) => tx.select().from(jobs).where(eq(jobs.kind, 'build_zip'))))[0]!;
+    expect(await job()).toMatchObject({ state: 'needs_review', lastError: expect.stringContaining('too_large') });
+    const r = await download({}); expect(r.status).toBe(403); expect(await json(r)).toEqual({ error: 'too_large' });
+    expect((await job()).state).toBe('needs_review'); // not reset
+  });
+
+  it('an expired ZIP and a failed build are rebuilt on the next request', async () => {
+    const { json, db, storage, f1, publish, download, drain } = await boot();
+    await publish([f1]); await download({}); await drain();
+    const url = (await json<{ url: string }>(await download({}))).url;
+    await storage.delete(storage.keys().find((k) => k.startsWith('z/'))!); // the 7-day lifecycle rule
+    expect((await download({})).status).toBe(202); await drain();
+    expect((await json<{ url: string }>(await download({}))).url).toBe(url);
+    await storage.delete(storage.keys().find((k) => k.startsWith('z/'))!);
+    await asSystem(db, (tx) => tx.update(jobs).set({ state: 'failed', attempts: 3, lastError: 'r2 down' }).where(eq(jobs.kind, 'build_zip')));
+    expect((await download({})).status).toBe(202);
+    expect((await asSystem(db, (tx) => tx.select().from(jobs).where(eq(jobs.kind, 'build_zip'))))[0]).toMatchObject({ state: 'pending', attempts: 0, lastError: null });
+    await drain(); expect((await download({})).status).toBe(200);
   });
 
   it('downloads are refused with the reason when not allowed', async () => {

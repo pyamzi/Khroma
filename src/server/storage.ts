@@ -1,8 +1,15 @@
+import { createReadStream } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
+import { Readable } from 'node:stream';
 import { AwsClient } from 'aws4fetch';
 
 export type StoredObject = { body: ReadableStream<Uint8Array>; size: number; contentType: string };
 export interface Storage {
   put(key: string, body: Uint8Array, contentType: string): Promise<void>;
+  /** Uploads a file from disk without holding it in memory (ZIPs run to gigabytes). */
+  putFile(key: string, path: string, contentType: string): Promise<void>;
+  /** The object's size in bytes, or null when it is missing; reads no body. */
+  size(key: string): Promise<number | null>;
   get(key: string): Promise<StoredObject | null>;
   getBytes(key: string): Promise<Uint8Array | null>;
   delete(key: string): Promise<void>;
@@ -28,6 +35,8 @@ export function memoryStorage(): Storage & { keys(): string[] } {
   const m = new Map<string, { bytes: Uint8Array<ArrayBuffer>; contentType: string }>();
   return {
     async put(key, body, contentType) { m.set(key, { bytes: new Uint8Array(body), contentType }); },
+    async putFile(key, path, contentType) { m.set(key, { bytes: new Uint8Array(await readFile(path)), contentType }); },
+    async size(key) { return m.get(key)?.bytes.byteLength ?? null; },
     async get(key) { const o = m.get(key); return o ? { body: new Blob([o.bytes]).stream(), size: o.bytes.byteLength, contentType: o.contentType } : null; },
     async getBytes(key) { return m.get(key)?.bytes ?? null; },
     async delete(key) { m.delete(key); },
@@ -58,6 +67,13 @@ export function r2Storage(o: { accountId: string; accessKeyId: string; secretAcc
   };
   return {
     async put(key, body, contentType) { await call('PUT', key, { body: body as unknown as BodyInit, headers: { 'content-type': contentType } }); },
+    // A file stream with an explicit content-length (R2 rejects chunked PUTs); a whole-file Blob body makes undici read it all into memory.
+    // With x-amz-content-sha256: UNSIGNED-PAYLOAD (aws4fetch's own default for s3 header signing, set here explicitly) aws4fetch never hashes or reads the body.
+    async putFile(key, path, contentType) {
+      const body = Readable.toWeb(createReadStream(path)) as unknown as BodyInit;
+      await call('PUT', key, { body, duplex: 'half', headers: { 'content-type': contentType, 'content-length': String((await stat(path)).size), 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' } } as RequestInit);
+    },
+    async size(key) { const res = await call('HEAD', key); return res.status === 404 ? null : Number(res.headers.get('content-length') ?? 0); },
     async get(key) {
       const res = await call('GET', key); if (res.status === 404 || !res.body) return null;
       return { body: res.body, size: Number(res.headers.get('content-length') ?? 0), contentType: res.headers.get('content-type') ?? 'application/octet-stream' };

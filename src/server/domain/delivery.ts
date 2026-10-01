@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -10,17 +10,17 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { promisify } from 'node:util';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { projects, photos, events, clients, invoices, favorites } from '../db/schema.js';
+import { projects, photos, events, clients, invoices, favorites, jobs } from '../db/schema.js';
 import { ProjectMeta } from './meta.js';
 import { sendEmail } from '../email/send.js';
 import { studioName } from './studio.js';
 import { project, summary } from './selection.js';
 import { previewVersion } from './photos.js';
 import { photoKey, zipKey, type Storage, type PhotoVariant } from '../storage.js';
-import { enqueue, type Handlers } from '../jobs/queue.js';
+import { enqueue, NeedsReview, type Handlers } from '../jobs/queue.js';
 
 export class DeliveryError extends Error {
-  constructor(public code: 'conflict' | 'invalid' | 'not_found' | 'unavailable' | 'no_finals' | 'disabled' | 'review' | 'unpaid') { super(code); this.name = 'DeliveryError'; }
+  constructor(public code: 'conflict' | 'invalid' | 'not_found' | 'unavailable' | 'no_finals' | 'disabled' | 'review' | 'unpaid' | 'too_large') { super(code); this.name = 'DeliveryError'; }
 }
 // original last: a photo that fails midway never has a new original under old previews
 const PAIRS: [PhotoVariant, PhotoVariant][] = [['preview.draft', 'preview'], ['medium.draft', 'medium'], ['thumb.draft', 'thumb'], ['draft', 'original']];
@@ -131,7 +131,7 @@ export function zipEntryNames(relPaths: string[]): string[] {
 
 /**
  * A 10-minute R2 URL for one live final or a ZIP of all of them. A missing ZIP is queued for the worker and the caller polls.
- * ponytail: the job's idempotency key outlives the ZIP; if an R2 lifecycle rule ever expires ZIPs, a done job for the same set must be re-queued here.
+ * The job's idempotency key outlives the ZIP (R2 expires z/ after 7 days), so a done or failed job for a missing ZIP is queued again.
  */
 export async function requestDownload(db: Db, storage: Storage, o: { projectId: string; photoId?: string; actor: string }): Promise<{ url: string } | { preparing: true }> {
   const p = await project(db, o.projectId).catch(() => { throw new DeliveryError('not_found'); });
@@ -144,7 +144,13 @@ export async function requestDownload(db: Db, storage: Storage, o: { projectId: 
   else {
     const hash = setHash(rows); key = zipKey(p.studioId, p.id, hash);
     if (!(await storage.exists(key))) {
-      await enqueue(db, { kind: 'build_zip', payload: { projectId: p.id, hash }, idempotencyKey: `zip:${p.id}:${hash}` });
+      const job = await enqueue(db, { kind: 'build_zip', payload: { projectId: p.id, hash }, idempotencyKey: `zip:${p.id}:${hash}` });
+      if (!job.created) {
+        const [j] = await db.select({ state: jobs.state, lastError: jobs.lastError }).from(jobs).where(eq(jobs.id, job.id)).limit(1);
+        if (j?.state === 'needs_review' && j.lastError?.includes('too_large')) throw new DeliveryError('too_large');
+        if (j?.state === 'done' || j?.state === 'failed')
+          await db.update(jobs).set({ state: 'pending', attempts: 0, nextAt: Date.now(), leasedUntil: null, lastError: null }).where(and(eq(jobs.id, job.id), inArray(jobs.state, ['done', 'failed'])));
+      }
       return { preparing: true };
     }
     name = `${cleanName(ProjectMeta.parse(p.metadataJson).title).replace(/[/\\]/g, '').trim() || 'gallery'}.zip`;
@@ -154,9 +160,11 @@ export async function requestDownload(db: Db, storage: Storage, o: { projectId: 
 }
 
 const run = promisify(execFile);
+/** R2 takes at most 5 GiB in one PUT; past this the Client downloads photos one at a time. */
+export const ZIP_MAX_BYTES = 3 * 1024 ** 3;
 /**
- * Heavy job: a stored (uncompressed) ZIP of the live finals at `zipKey`. A set that changed since the request ends quietly; the new set has its own job.
- * ponytail: the finished ZIP is read into memory for `put`; switch to a multipart upload if galleries outgrow the worker's RAM.
+ * Heavy job: a stored (uncompressed) ZIP of the live finals at `zipKey`, streamed from disk to storage.
+ * A set that changed since the request ends quietly; the new set has its own job. A set over ZIP_MAX_BYTES goes to review untouched.
  */
 export function makeZipHandlers(storage: Storage): Handlers {
   return {
@@ -165,6 +173,8 @@ export function makeZipHandlers(storage: Storage): Handlers {
       const rows = await liveFinals(db, projectId);
       const key = zipKey(studioId, projectId, hash);
       if (setHash(rows) !== hash || (await storage.exists(key))) return;
+      let total = 0; await pool(rows, 8, async (r) => { total += (await storage.size(photoKey(studioId, r.id, 'original'))) ?? 0; });
+      if (total > ZIP_MAX_BYTES) throw new NeedsReview('too_large');
       const dir = await mkdtemp(join(tmpdir(), 'og-zip-')); const files = join(dir, 'files');
       try {
         await mkdir(files); const names = zipEntryNames(rows.map((r) => r.relPath));
@@ -175,7 +185,7 @@ export function makeZipHandlers(storage: Storage): Handlers {
         });
         // `-r .` from inside the folder: entry names are never read as options
         await run('zip', ['-q', '-0', '-X', '-r', join(dir, 'out.zip'), '.'], { cwd: files, timeout: 10 * 60_000, killSignal: 'SIGKILL' });
-        await storage.put(key, await readFile(join(dir, 'out.zip')), 'application/zip');
+        await storage.putFile(key, join(dir, 'out.zip'), 'application/zip');
       } finally { await rm(dir, { recursive: true, force: true }); }
     },
   };
