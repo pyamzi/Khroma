@@ -4,10 +4,13 @@ import type { Me } from '../App';
 import type { PhotoItem, CommentRow } from '../types';
 
 type Region = { x: number; y: number; w: number; h: number };
-type Props = { photos: PhotoItem[]; index: number; me: Me; commentsOn: boolean; onIndex: (i: number) => void; onClose: () => void; onToggle: (id: string) => void; onCommented: () => void; onResolve?: (commentId: string, resolved: boolean) => Promise<void> };
+type Props = { photos: PhotoItem[]; index: number; me: Me; commentsOn: boolean; onIndex: (i: number) => void; onClose: () => void; onToggle: (id: string) => void; onCommented: () => void; onResolve?: (commentId: string, resolved: boolean) => Promise<void>;
+  /** The heart's labels when it is on and off: the gallery's heart is a favorite, not a pick. */
+  labels?: { on: string; off: string };
+  onDownload?: (id: string) => void };
 type Gesture = { x: number; y: number; drawing: boolean; timer?: ReturnType<typeof setTimeout> };
 
-export function Viewer({ photos, index, me, commentsOn, onIndex, onClose, onToggle, onCommented, onResolve }: Props) {
+export function Viewer({ photos, index, me, commentsOn, onIndex, onClose, onToggle, onCommented, onResolve, labels = { on: 'Unpick', off: 'Pick' }, onDownload }: Props) {
   const photo = photos[index]!;
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [draft, setDraft] = useState<Region | null>(null);
@@ -84,8 +87,11 @@ export function Viewer({ photos, index, me, commentsOn, onIndex, onClose, onTogg
       </div>
       <div className="flex items-center justify-between p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <span className="text-sm text-neutral-400">{commentsOn && comments.length > 0 ? `${comments.length} comment${comments.length > 1 ? 's' : ''}` : ''}{canDraw && !draft ? (comments.length ? ' · ' : '') + 'hold to draw' : ''}</span>
-        <button onClick={() => onToggle(photo.id)} disabled={!!photo.pick?.locked} aria-pressed={!!photo.pick} aria-label={photo.pick ? 'Unpick' : 'Pick'}
-          className={`flex h-12 w-12 items-center justify-center rounded-full text-2xl ${photo.pick ? (photo.pick.state === 'pending' ? 'bg-amber-400 text-black' : 'bg-white text-red-500') : 'bg-white/20'} disabled:opacity-60`}>{photo.pick ? '♥' : '♡'}</button>
+        <div className="flex items-center gap-2">
+          {onDownload && <button onClick={() => onDownload(photo.id)} className="min-h-12 rounded-full bg-white/20 px-4">Download</button>}
+          <button onClick={() => onToggle(photo.id)} disabled={!!photo.pick?.locked} aria-pressed={!!photo.pick} aria-label={photo.pick ? labels.on : labels.off}
+            className={`flex h-12 w-12 items-center justify-center rounded-full text-2xl ${photo.pick ? (photo.pick.state === 'pending' ? 'bg-amber-400 text-black' : 'bg-white text-red-500') : 'bg-white/20'} disabled:opacity-60`}>{photo.pick ? '♥' : '♡'}</button>
+        </div>
       </div>
       {showForm && (
         <form onSubmit={(e) => { e.preventDefault(); void post(); }} className="flex gap-2 bg-neutral-900 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">

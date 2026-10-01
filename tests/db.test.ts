@@ -69,7 +69,7 @@ describe('database', () => {
   it('migration 0003 retires H1 people sessions and keeps plugin tokens', async () => {
     const before = await tmpDir(); await cp(migrationsFolder, before, { recursive: true }); // the schema as H1 left it
     const journal = JSON.parse(await readFile(join(before, 'meta/_journal.json'), 'utf8')) as { entries: { tag: string }[] };
-    for (const tag of ['0004_library', '0003_retire_h1_sessions']) { // roll the copy back to before 0003
+    for (const tag of ['0005_favorites_viewer', '0004_library', '0003_retire_h1_sessions']) { // roll the copy back to before 0003
       expect(journal.entries.pop()!.tag).toBe(tag); await rm(join(before, `${tag}.sql`));
     }
     await writeFile(join(before, 'meta/_journal.json'), JSON.stringify(journal));
@@ -87,8 +87,8 @@ describe('database', () => {
   it('migration 0004 takes culling RAWs and unpublished drafts out of the Library and leaves live finals in', async () => {
     const before = await tmpDir(); await cp(migrationsFolder, before, { recursive: true });
     const journal = JSON.parse(await readFile(join(before, 'meta/_journal.json'), 'utf8')) as { entries: { tag: string }[] };
-    const last = journal.entries.pop()!; expect(last.tag).toBe('0004_library');
-    await writeFile(join(before, 'meta/_journal.json'), JSON.stringify(journal)); await rm(join(before, `${last.tag}.sql`));
+    for (const tag of ['0005_favorites_viewer', '0004_library']) { expect(journal.entries.pop()!.tag).toBe(tag); await rm(join(before, `${tag}.sql`)); }
+    await writeFile(join(before, 'meta/_journal.json'), JSON.stringify(journal));
     const pg = new PGlite(); const db = drizzle(pg);
     try {
       await migrate(db, { migrationsFolder: before });

@@ -34,7 +34,7 @@ test('client signs in, culls with a shared allowance, requests extras, comments,
   await expect(page.getByTestId('count')).toHaveText('2 of 2');
   await tiles.nth(0).getByRole('button', { name: 'Open photo' }).click();
   await expect(page.getByText('1 / 3')).toBeVisible();
-  const img = page.locator('img[src$="/preview"]'); await expect(img).toBeVisible();
+  const img = page.locator('img[src*="/preview?v="]'); await expect(img).toBeVisible();
   const box = (await img.boundingBox())!;
   await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2); await page.mouse.down();
   await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5, { steps: 5 }); await page.mouse.up();

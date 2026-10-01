@@ -13,7 +13,7 @@ export function ProjectHome({ id, me }: { id: string; me: Me }) {
     switch (p.state.production) {
       case 'culling': return { line: `Pick your favorites · ${picked} of ${s.entitlement}`, cta: picked ? 'Continue' : 'Start picking', go: () => navigate(`/p/${id}/cull`) };
       case 'editing': return { line: `We're editing · ${p.progress.done} of ${p.progress.total} done`, cta: 'See your picks', go: () => navigate(`/p/${id}/cull`), bar: p.progress.total ? p.progress.done / p.progress.total : 0 };
-      case 'delivered': return { line: 'Your gallery is ready', cta: 'Open gallery', go: () => navigate(`/p/${id}/cull`) };
+      case 'delivered': return { line: 'Your gallery is ready', cta: 'Open gallery', go: () => navigate(`/p/${id}/gallery`) };
       default: return { line: 'Your photos are on the way', cta: null, go: () => {} };
     }
   })();

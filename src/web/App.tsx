@@ -6,6 +6,7 @@ import { SignIn } from './pages/SignIn';
 import { Home } from './pages/Home';
 import { ProjectHome } from './pages/ProjectHome';
 import { Cull } from './pages/Cull';
+import { Gallery } from './pages/Gallery';
 import { Dashboard } from './admin/Dashboard';
 import { Settings } from './admin/Settings';
 import { Clients } from './admin/Clients';
@@ -31,5 +32,6 @@ export function App() {
   if (route.name === 'home' && me.isAdmin) return <Dashboard />;
   if (route.name === 'project') return <ProjectHome id={route.params.id!} me={me} />;
   if (route.name === 'cull') return <Cull id={route.params.id!} me={me} />;
+  if (route.name === 'gallery') return <Gallery id={route.params.id!} me={me} />;
   return <Home me={me} />;
 }
