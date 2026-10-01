@@ -31,6 +31,7 @@ describe('library over HTTP', () => {
     await s.drain();
     const page = await s.json<{ total: number; items: { id: string; status: string; width: number }[] }>(await s.api('/api/library', { cookie: owner }));
     expect(page.total).toBe(1); expect(page.items[0]).toMatchObject({ id: up.photoId, status: 'ready', width: 3000 });
+    expect(page.items[0]).toHaveProperty('v', expect.stringMatching(/^[0-9a-f]{12}$/));
     expect((await s.api(`/api/photos/${up.photoId}/preview?size=thumb`, { cookie: owner })).status).toBe(200);
   });
 

@@ -12,6 +12,7 @@ import { Settings } from './admin/Settings';
 import { Clients } from './admin/Clients';
 import { Board } from './admin/Board';
 import { Project } from './admin/Project';
+import { Library } from './admin/Library';
 
 export type Me = { kind: string; subject: string; isAdmin: boolean; studio?: { id: string; name: string } };
 
@@ -28,6 +29,7 @@ export function App() {
   if (route.name === 'admin_clients') return <Clients />;
   if (route.name === 'admin_client') return <Clients id={route.params.id!} />;
   if (route.name === 'admin_project') return <Project id={route.params.id!} me={me} />;
+  if (route.name === 'admin_library') return <Library />;
   if (route.name === 'admin_settings') return <Settings me={me} />;
   if (route.name === 'home' && me.isAdmin) return <Dashboard />;
   if (route.name === 'project') return <ProjectHome id={route.params.id!} me={me} />;

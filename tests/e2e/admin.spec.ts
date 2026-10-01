@@ -1,4 +1,8 @@
 import { test, expect } from 'playwright/test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import sharp from 'sharp';
 import { startTestServer, linkIn } from './server.js';
 
 let srv: Awaited<ReturnType<typeof startTestServer>>;
@@ -67,4 +71,20 @@ test('owner runs the studio: dashboard, clients, project detail, settings, board
   // Board: the Wedding card sits in the Culling column
   await page.getByRole('button', { name: /Board$/ }).first().click();
   await expect(page.getByTestId('card').filter({ hasText: 'Wedding' })).toBeVisible();
+});
+
+test('owner uploads a photo to the Library and sees it ready', async ({ page }) => {
+  const file = join(mkdtempSync(join(tmpdir(), 'lib-')), 'beach.jpg');
+  await sharp({ create: { width: 900, height: 600, channels: 3, background: '#39c' } }).jpeg().toFile(file);
+  await page.goto(await srv.signInLink('owner@x.com'));
+  await page.getByRole('button', { name: 'Library' }).first().click();
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  await expect(page.getByText('0 photos')).toBeVisible();
+  await page.getByTestId('library-input').setInputFiles(file);
+  await expect(page.getByText('1 photo', { exact: true })).toBeVisible();
+  const thumb = page.getByTestId('library-tile').locator('img');
+  await expect(thumb).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => thumb.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0);
+  await page.getByTestId('library-input').setInputFiles({ name: 'clip.gif', mimeType: 'image/gif', buffer: Buffer.from('GIF89a') });
+  await expect(page.getByText('clip.gif: not a supported photo type')).toBeVisible();
 });

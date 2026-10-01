@@ -9,6 +9,7 @@ import { sniffBytes, sha256 } from '../media/sniff.js';
 import { renderSizes, heicToJpeg } from '../media/convert.js';
 import { readMetadata } from '../media/metadata.js';
 import { enqueue, type Handlers } from '../jobs/queue.js';
+import { previewVersion } from './photos.js';
 import { newId } from '../ids.js';
 
 export const MAX_UPLOAD_BYTES = 52_428_800;
@@ -84,7 +85,7 @@ export function makeLibraryHandlers(storage: Storage): Handlers {
   };
 }
 
-export type LibraryItem = { id: string; status: string; width: number | null; height: number | null; capturedAt: string | null; createdAt: string; readyAt: string | null; projectId: string | null; projectTitle: string | null };
+export type LibraryItem = { id: string; status: string; width: number | null; height: number | null; capturedAt: string | null; createdAt: string; readyAt: string | null; projectId: string | null; projectTitle: string | null; v: string };
 
 /** Newest first. The cursor is the last item's `createdAt|id`: rows can share a created_at, so id breaks the tie. */
 export async function libraryPage(db: Db, o: { cursor?: string; limit: number }): Promise<{ total: number; items: LibraryItem[]; nextCursor: string | null }> {
@@ -92,12 +93,12 @@ export async function libraryPage(db: Db, o: { cursor?: string; limit: number })
   const [at, id] = o.cursor ? o.cursor.split('|') : [];
   const rows = await db.select({
     id: photos.id, status: photos.status, width: photos.width, height: photos.height, capturedAt: photos.capturedAt, createdAt: photos.createdAt,
-    readyAt: photos.readyAt, projectId: photos.projectId, projectTitle: sql<string | null>`${projects.metadataJson}->>'title'`,
+    readyAt: photos.readyAt, checksum: photos.checksum, projectId: photos.projectId, projectTitle: sql<string | null>`${projects.metadataJson}->>'title'`,
   }).from(photos).leftJoin(projects, eq(projects.id, photos.projectId))
     .where(and(inLibrary, o.cursor ? sql`(${photos.createdAt}, ${photos.id}) < (${at}, ${id})` : undefined))
     .orderBy(desc(photos.createdAt), desc(photos.id)).limit(o.limit + 1);
   const [{ n }] = await db.select({ n: count() }).from(photos).where(inLibrary) as [{ n: number }];
-  const items = rows.slice(0, o.limit); const last = items.at(-1);
+  const items = rows.slice(0, o.limit).map(({ checksum, ...r }) => ({ ...r, v: previewVersion({ checksum, readyAt: r.readyAt }) })); const last = items.at(-1);
   return { total: n, items, nextCursor: rows.length > o.limit && last ? `${last.createdAt}|${last.id}` : null };
 }
 

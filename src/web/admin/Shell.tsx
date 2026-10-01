@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { navigate } from '../router';
 import { api } from '../api';
 
-const NAV: [string, string, string][] = [['/admin', 'Dashboard', '⌂'], ['/admin/projects', 'Board', '▦'], ['/admin/clients', 'Clients', '☺'], ['/admin/settings', 'Settings', '⚙']];
+const NAV: [string, string, string][] = [['/admin', 'Dashboard', '⌂'], ['/admin/projects', 'Board', '▦'], ['/admin/clients', 'Clients', '☺'], ['/admin/library', 'Library', '▤'], ['/admin/settings', 'Settings', '⚙']];
 
 export function Shell({ section, title, children, actions }: { section: string; title: string; children: ReactNode; actions?: ReactNode }) {
   const signout = async () => { await api('/api/auth/signout', { method: 'POST' }); window.location.href = '/'; };

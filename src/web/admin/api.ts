@@ -19,3 +19,16 @@ export const ago = (iso: string) => { const s = (Date.now() - Date.parse(iso)) /
 
 export const publishFinals = (projectId: string, photoIds: string[], expectedVersion: number) =>
   api<{ published: number }>(`/api/projects/${projectId}/publish`, { method: 'POST', body: JSON.stringify({ photoIds, expectedVersion }) });
+
+export type LibraryItem = { id: string; status: 'uploading' | 'processing' | 'ready'; width: number | null; height: number | null; createdAt: string; projectId: string | null; projectTitle: string | null; v: string };
+export type LibraryPage = { total: number; items: LibraryItem[]; nextCursor: string | null };
+export const libraryPage = (limit: number, cursor?: string) => api<LibraryPage>(`/api/library?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+export const startUpload = (name: string, size: number) => api<{ photoId: string; uploadUrl: string; contentType: string }>('/api/library/uploads', { method: 'POST', body: JSON.stringify({ name, size }) });
+export const completeUpload = (photoId: string) => api<{ ok: true }>(`/api/library/uploads/${photoId}/complete`, { method: 'POST', body: '{}' });
+/** XHR, not fetch, for upload progress. R2 signs the content type, so it must be exactly the one startUpload returned; no other headers (cross-origin, no cookies). */
+export const putFile = (url: string, file: File, contentType: string, onProgress: (pct: number) => void) => new Promise<void>((resolve, reject) => {
+  const x = new XMLHttpRequest(); x.open('PUT', url); x.setRequestHeader('Content-Type', contentType);
+  x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+  x.onload = () => (x.status >= 200 && x.status < 300 ? resolve() : reject(new Error(`upload ${x.status}`)));
+  x.onerror = () => reject(new Error('upload failed')); x.send(file);
+});
