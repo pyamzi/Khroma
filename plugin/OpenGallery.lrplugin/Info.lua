@@ -12,6 +12,7 @@ return {
     file = 'OGPublishProvider.lua',
   },
   LrLibraryMenuItems = {
+    { title = 'Send for culling to OpenGallery…', file = 'OGSendCulling.lua' },
     { title = 'OpenGallery: Sync picks', file = 'OGSyncPicks.lua' },
     { title = 'OpenGallery: Report editing progress', file = 'OGProgress.lua' },
   },

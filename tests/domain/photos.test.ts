@@ -4,7 +4,7 @@ import sharp from 'sharp';
 import { clients, projects, photos, events } from '../../src/server/db/schema.js';
 import { memoryStorage, photoKey } from '../../src/server/storage.js';
 import { runOnce } from '../../src/server/jobs/queue.js';
-import { addPhoto, makePreviewHandlers, PhotoError } from '../../src/server/domain/photos.js';
+import { addPhoto, addCullingPreview, makePreviewHandlers, PhotoError } from '../../src/server/domain/photos.js';
 import { uploadFinal } from '../../src/server/domain/finals.js';
 import { defaultProjectMeta } from '../../src/server/domain/meta.js';
 import { jpegBytes } from '../fixtures/make.js';
@@ -65,5 +65,17 @@ describe('photos', () => {
     await addPhoto(db, storage, { projectId: 'p1', relPath: 'raw/bad.dng', stage: 'culling', bytes: tiffHeaderOnly, name: 'bad.dng' });
     await drain();
     expect((await db.select().from(events)).map((e) => e.type)).toContain('preview_failed');
+  });
+  it('culling previews normalise to raw/<basename>, stay out of the Library, and survive a lost insert race', async () => {
+    const { db, storage, drain } = await seed(); const bytes = await jpegBytes(40, 30); const name = 'x.jpg';
+    expect(await addCullingPreview(db, storage, { projectId: 'p1', relPath: '..\\\\shoot/sub\\IMG_1.CR3', bytes, name })).toMatchObject({ created: true, replaced: false });
+    expect((await db.select().from(photos))[0]).toMatchObject({ relPath: 'raw/IMG_1.CR3', stage: 'culling', inLibrary: false, status: 'ready' });
+    await expect(addCullingPreview(db, storage, { projectId: 'p1', relPath: 'raw/', bytes, name })).rejects.toMatchObject({ code: 'invalid' });
+    // two sends of a new path at once: the loser takes the existing row instead of failing
+    const both = await Promise.all([0, 1].map(() => addCullingPreview(db, storage, { projectId: 'p1', relPath: 'raw/IMG_2.CR3', bytes, name })));
+    expect(new Set(both.map((r) => r.photoId)).size).toBe(1);
+    expect(both.filter((r) => r.created)).toHaveLength(1);
+    await drain();
+    expect((await db.select().from(photos)).filter((r) => r.relPath === 'raw/IMG_2.CR3')).toHaveLength(1);
   });
 });

@@ -74,6 +74,17 @@ function OGApi:uploadFinal(projectId, opts)
   return self:request('POST', '/api/plugin/projects/' .. projectId .. '/finals', nil, chunks)
 end
 
+-- Sends a RAW's rendered JPEG preview as a culling photo. opts: filePath, relPath ('raw/<RAW file name>').
+-- Returns { photoId, created, replaced }; re-sending identical bytes is a no-op (created and replaced both false).
+function OGApi:uploadCulling(projectId, opts)
+  assert(opts.filePath and opts.relPath, 'uploadCulling needs filePath, relPath')
+  local chunks = {
+    { name = 'relPath', value = opts.relPath },
+    { name = 'file', fileName = 'preview.jpg', filePath = opts.filePath, contentType = 'image/jpeg' },
+  }
+  return self:request('POST', '/api/plugin/projects/' .. projectId .. '/culling', nil, chunks)
+end
+
 function OGApi:deleteFinal(photoId) return self:request('DELETE', '/api/plugin/finals/' .. photoId) end
 function OGApi:picks(projectId) return self:request('GET', '/api/plugin/projects/' .. projectId .. '/picks') end
 function OGApi:comments(projectId, since)

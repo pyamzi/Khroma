@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import type { Db } from '../db/client.js';
 import { photos, events } from '../db/schema.js';
@@ -7,11 +7,12 @@ import { sniffBytes, sha256 } from '../media/sniff.js';
 import { extractPreview, makeThumb, PreviewError, PREVIEW_EDGE, MEDIUM_EDGE, THUMB_EDGE } from '../media/previews.js';
 import { enqueue, type Handlers } from '../jobs/queue.js';
 import { newId } from '../ids.js';
+import { pgCode } from '../db/errors.js';
 import { project } from './selection.js';
 import { onCullingMediaAdded } from './transitions.js';
 
 export { PREVIEW_EDGE, MEDIUM_EDGE, THUMB_EDGE };
-export class PhotoError extends Error { constructor(public code: 'unsupported') { super(code); this.name = 'PhotoError'; } }
+export class PhotoError extends Error { constructor(public code: 'unsupported' | 'invalid' | 'too_large') { super(code); this.name = 'PhotoError'; } }
 
 /** Stores the original, records the photo, and queues its previews. `relPath` is the logical path within the project, e.g. raw/a.dng. */
 export async function addPhoto(db: Db, storage: Storage, o: { projectId: string; relPath: string; stage: 'culling' | 'final'; bytes: Uint8Array; name: string; sourcePhotoId?: string | null }): Promise<{ photoId: string }> {
@@ -23,6 +24,33 @@ export async function addPhoto(db: Db, storage: Storage, o: { projectId: string;
   await enqueue(db, { kind: 'preview', payload: { photoId }, idempotencyKey: `preview:${photoId}:${checksum}` });
   if (o.stage === 'culling') await onCullingMediaAdded(db, o.projectId);
   return { photoId };
+}
+export const MAX_CULLING_BYTES = 30 * 1024 * 1024;
+
+/**
+ * A client-facing culling photo from the 2048 px JPEG preview Lightroom renders (the RAW itself never leaves the photographer's machine).
+ * It is keyed by `raw/<basename>`; the same path with the same bytes is a no-op, changed bytes replace the preview and keep the id, picks and comments.
+ * `name` is informational: `relPath` carries the RAW's name, so the preview is sniffed as a JPEG regardless of it.
+ */
+export async function addCullingPreview(db: Db, storage: Storage, o: { projectId: string; relPath: string; bytes: Uint8Array; name: string }): Promise<{ photoId: string; created: boolean; replaced: boolean }> {
+  const leaf = o.relPath.split(/[\\/]/).pop()!.replace(/^\.+/, '').trim();
+  if (!leaf) throw new PhotoError('invalid');
+  if (o.bytes.byteLength > MAX_CULLING_BYTES) throw new PhotoError('too_large');
+  if (sniffBytes(o.bytes, 'preview.jpg')?.format !== 'jpeg') throw new PhotoError('unsupported');
+  const relPath = `raw/${leaf}`; const checksum = sha256(o.bytes);
+  const find = async () => (await db.select().from(photos).where(and(eq(photos.projectId, o.projectId), eq(photos.relPath, relPath), eq(photos.stage, 'culling'))).limit(1))[0];
+  let ex = await find();
+  if (!ex) {
+    // the savepoint lets a lost race (unique violation) fall through to the replace path instead of aborting the caller's transaction
+    try { return { ...(await db.transaction((tx) => addPhoto(tx, storage, { projectId: o.projectId, relPath, stage: 'culling', bytes: o.bytes, name: 'preview.jpg' }))), created: true, replaced: false }; }
+    catch (e) { if (pgCode(e) !== '23505' || !(ex = await find())) throw e; }
+  }
+  if (ex.checksum === checksum) return { photoId: ex.id, created: false, replaced: false };
+  const p = await project(db, o.projectId);
+  await storage.put(photoKey(p.studioId, ex.id, 'original'), o.bytes, 'image/jpeg');
+  await db.update(photos).set({ checksum }).where(eq(photos.id, ex.id)); // width/height follow when the new preview job runs
+  await enqueue(db, { kind: 'preview', payload: { photoId: ex.id }, idempotencyKey: `preview:${ex.id}:${checksum}` });
+  return { photoId: ex.id, created: false, replaced: true };
 }
 const TYPES: Record<string, string> = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', mp4: 'video/mp4', mov: 'video/quicktime' };
 export const contentType = (_name: string, format: string) => TYPES[format] ?? 'application/octet-stream';

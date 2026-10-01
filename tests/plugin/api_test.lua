@@ -27,6 +27,13 @@ assert(r2.relPath == 'finals/DSC_0001 (2).jpg', 'collision naming: ' .. tostring
 local r3 = assert(api:uploadFinal(project.id, { filePath = jpegPath, name = 'DSC_0001.jpg', sourcePhotoId = ids['raw/a.dng'], uploadId = 'lua-1' }))
 assert(r3.idempotent == true and r3.photoId == r1.photoId, 'idempotent')
 
+local c1 = assert(api:uploadCulling(project.id, { filePath = jpegPath, relPath = 'raw/IMG_9001.CR3' }))
+assert(c1.created == true and c1.photoId, 'culling upload')
+local c2 = assert(api:uploadCulling(project.id, { filePath = jpegPath, relPath = 'raw/IMG_9001.CR3' }))
+assert(c2.created == false and c2.replaced == false and c2.photoId == c1.photoId, 'culling idempotent')
+assert(assert(api:resolve(project.id, { 'raw/IMG_9001.CR3' }))['raw/IMG_9001.CR3'] == c1.photoId, 'culling resolves')
+local _, cerr = api:uploadCulling(project.id, { filePath = jpegPath, relPath = '' }); assert(cerr and cerr:match('400'), 'empty relPath refused')
+
 local picks = assert(api:picks(project.id))
 assert(picks.round == 1 and #picks.picks == 1 and picks.picks[1].relPath == 'raw/a.dng', 'picks after finish')
 

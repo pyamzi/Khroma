@@ -10,10 +10,12 @@ import { getStudio } from '../../domain/settings.js';
 import { createProject } from '../../domain/admin.js';
 import { uploadFinal, deleteFinal, resolvePaths, pluginPicks, pluginComments, replyFromPlugin, reportProgress, FinalsError } from '../../domain/finals.js';
 import { CommentError } from '../../domain/comments.js';
+import { addCullingPreview, PhotoError } from '../../domain/photos.js';
 
 const VERSION = '0.1.0';
 const failPlugin = (c: Parameters<typeof fail>[0], e: unknown) => {
-  if (e instanceof FinalsError) return c.json({ error: e.code }, e.code === 'not_found' ? 404 : e.code === 'live_until_published' ? 409 : e.code === 'too_large' ? 413 : e.code === 'unsupported' ? 415 : 400);
+  if (e instanceof FinalsError) return c.json({ error: e.code }, e.code === 'not_found' ? 404 : e.code === 'live_until_published' || e.code === 'conflict' ? 409 : e.code === 'too_large' ? 413 : e.code === 'unsupported' ? 415 : 400);
+  if (e instanceof PhotoError) return c.json({ error: e.code }, e.code === 'too_large' ? 413 : e.code === 'unsupported' ? 415 : 400);
   if (e instanceof CommentError) return c.json({ error: e.code }, 422);
   return fail(c, e);
 };
@@ -43,6 +45,14 @@ export const pluginRoutes = () => new Hono<AppEnv>()
     try {
       const r = await uploadFinal(c.get('db'), c.get('storage'), { projectId: c.get('project').id, name: str('name') ?? f.name, bytes: new Uint8Array(await f.arrayBuffer()), sourcePhotoId: str('sourcePhotoId') || null, uploadId: str('uploadId') ?? '', checksum: str('checksum'), actor: c.get('session')!.subject });
       return c.json(r, r.idempotent ? 200 : 201);
+    } catch (e) { return failPlugin(c, e); }
+  })
+  .post('/api/plugin/projects/:id/culling', requireScope('write'), loadProject(), async (c) => {
+    const body = await c.req.parseBody().catch(() => ({} as Record<string, unknown>)); const f = body['file']; const relPath = body['relPath'];
+    if (!(f instanceof File) || typeof relPath !== 'string') return c.json({ error: 'invalid body' }, 400);
+    try {
+      const r = await addCullingPreview(c.get('db'), c.get('storage'), { projectId: c.get('project').id, relPath, bytes: new Uint8Array(await f.arrayBuffer()), name: f.name });
+      return c.json(r, r.created ? 201 : 200);
     } catch (e) { return failPlugin(c, e); }
   })
   .delete('/api/plugin/finals/:photoId', requireScope('write'), async (c) => {

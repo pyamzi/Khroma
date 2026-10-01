@@ -8,10 +8,11 @@ import { photoKey, type Storage } from '../storage.js';
 import { getSetting } from '../db/settings.js';
 import { enqueue } from '../jobs/queue.js';
 import { newId } from '../ids.js';
+import { pgCode } from '../db/errors.js';
 import { addComment } from './comments.js';
 import { project as projectRow } from './selection.js';
 
-export class FinalsError extends Error { constructor(public code: 'invalid' | 'not_found' | 'live_until_published' | 'unsupported' | 'too_large') { super(code); this.name = 'FinalsError'; } }
+export class FinalsError extends Error { constructor(public code: 'invalid' | 'not_found' | 'live_until_published' | 'unsupported' | 'too_large' | 'conflict') { super(code); this.name = 'FinalsError'; } }
 const OK_EXT = new Set(['.jpg', '.jpeg', '.png']);
 const project = (db: Db, id: string) => projectRow(db, id).catch(() => { throw new FinalsError('not_found'); });
 
@@ -40,7 +41,8 @@ export async function uploadFinal(db: Db, storage: Storage, o: { projectId: stri
     await db.update(photos).set({ draftRelPath: draftPath, checksum, sourcePhotoId: source?.id ?? existing.sourcePhotoId }).where(eq(photos.id, existing.id));
   } else {
     photoId = newId();
-    await db.insert(photos).values({ id: photoId, projectId: o.projectId, relPath: livePath, draftRelPath: draftPath, live: false, inLibrary: false, stage: 'final', kind: 'photo', sourcePhotoId: source?.id ?? null, checksum });
+    try { await db.insert(photos).values({ id: photoId, projectId: o.projectId, relPath: livePath, draftRelPath: draftPath, live: false, inLibrary: false, stage: 'final', kind: 'photo', sourcePhotoId: source?.id ?? null, checksum }); }
+    catch (e) { if (pgCode(e) === '23505') throw new FinalsError('conflict'); throw e; } // a concurrent upload took this path first; the caller retries
   }
   await storage.put(photoKey(p.studioId, photoId, 'draft'), o.bytes, sn.format === 'png' ? 'image/png' : 'image/jpeg');
   await enqueue(db, { kind: 'preview', payload: { photoId }, idempotencyKey: `preview:${photoId}:${checksum}:d` });

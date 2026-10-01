@@ -47,6 +47,15 @@ describe('finals domain', () => {
     const r = await uploadFinal(db, storage, { projectId: pid, name: 'f.jpg', bytes: await jpeg(), uploadId: 'u1', actor: 'p' });
     expect((await db.select().from(photos).where(eq(photos.id, r.photoId)))[0]!.inLibrary).toBe(false);
   });
+  it('two concurrent same-name final uploads give one success and one conflict, never a database error', async () => {
+    const { db, storage } = await seed();
+    const bytes = await jpeg();
+    const results = await Promise.allSettled(['u1', 'u2'].map((id) => uploadFinal(db, storage, { projectId: pid, name: 'same.jpg', bytes, uploadId: id, actor: 'p' })));
+    const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect(failed[0]!.reason).toMatchObject({ name: 'FinalsError', code: 'conflict' });
+    expect((await db.select().from(photos)).filter((x) => x.stage === 'final')).toHaveLength(1);
+  });
   it('deletes a draft and its objects but refuses a live final', async () => {
     const { db, storage, studioId, a } = await seed();
     const r = await uploadFinal(db, storage, { projectId: pid, name: 'f.jpg', bytes: await jpeg(), sourcePhotoId: a.id, uploadId: 'u1', actor: 'p' });

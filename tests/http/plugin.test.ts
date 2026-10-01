@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import sharp from 'sharp';
 import { boot as bootApp } from './boot.js';
 
+const sized = (w: number, h: number) => sharp({ create: { width: w, height: h, channels: 3, background: '#c33' } }).jpeg().toBuffer();
 const jpeg = (bg = '#c33') => sharp({ create: { width: 40, height: 30, channels: 3, background: bg } }).jpeg().toBuffer();
 
 async function boot() {
@@ -73,5 +74,43 @@ describe('plugin api', () => {
     expect((await api(`/api/access/tokens/${rw.id}`, { method: 'DELETE', cookie: owner })).status).toBe(200);
     expect((await api('/api/plugin/me', { bearer: rw.token })).status).toBe(401);
     expect((await json<{ id: string }[]>(await api('/api/access/tokens', { cookie: owner }))).map((t) => t.id).sort()).toEqual([ro.id, scoped.id].sort());
+  });
+  describe('culling previews', () => {
+    const send = async (b: Awaited<ReturnType<typeof boot>>, token: string, pid: string, relPath: string, bytes: Uint8Array | Buffer) => {
+      const fd = new FormData(); fd.append('file', new Blob([bytes], { type: 'image/jpeg' }), 'x.jpg'); fd.append('relPath', relPath);
+      return b.api(`/api/plugin/projects/${pid}/culling`, { method: 'POST', body: fd, bearer: token });
+    };
+    it('the plugin sends a culling preview that is not a Library photo', async () => {
+      const b = await boot(); const rw = await b.mint({ name: 'Sam', scope: 'read+write' });
+      const before = await b.json<{ total: number }>(await b.api('/api/library', { cookie: b.owner }));
+      expect((await b.json<{ state: { production: string } }>(await b.api(`/api/projects/${b.qid}`, { cookie: b.owner }))).state.production).toBe('not_started');
+      const r = await send(b, rw.token, b.qid, 'C:\\shoot\\IMG_1.CR3', await jpeg()); expect(r.status).toBe(201);
+      expect(await b.json<{ created: boolean; replaced: boolean }>(r)).toMatchObject({ created: true, replaced: false });
+      expect((await b.json<Photo[]>(await b.api(`/api/projects/${b.qid}/photos?stage=culling`, { cookie: b.owner }))).map((p) => p.relPath)).toEqual(['raw/IMG_1.CR3']);
+      expect((await b.json<{ total: number }>(await b.api('/api/library', { cookie: b.owner }))).total).toBe(before.total);
+      expect((await b.json<{ state: { production: string } }>(await b.api(`/api/projects/${b.qid}`, { cookie: b.owner }))).state.production).toBe('culling');
+      const ro = await b.mint({ name: 'Viewer', scope: 'read' });
+      expect((await send(b, ro.token, b.qid, 'raw/IMG_2.CR3', await jpeg())).status).toBe(403);
+      expect((await send(b, rw.token, b.qid, '', await jpeg())).status).toBe(400);
+    });
+    it('re-sending the same preview is a no-op; changed bytes replace it and keep picks', async () => {
+      const b = await boot(); const rw = await b.mint({ name: 'Sam', scope: 'read+write' });
+      const first = await b.json<{ photoId: string }>(await send(b, rw.token, b.pid, 'raw/IMG_1.CR3', await sized(40, 30))); await b.drain();
+      const same = await send(b, rw.token, b.pid, 'raw/IMG_1.CR3', await sized(40, 30)); expect(same.status).toBe(200);
+      expect(await b.json<unknown>(same)).toEqual({ photoId: first.photoId, created: false, replaced: false });
+      const sel = await b.json<{ summary: { selectionVersion: number } }>(await b.api(`/api/projects/${b.pid}/selection`, { cookie: b.sarah }));
+      await b.api(`/api/projects/${b.pid}/picks`, { method: 'POST', cookie: b.sarah, body: JSON.stringify({ photoId: first.photoId, picked: true, selectionVersion: sel.summary.selectionVersion }) });
+      const rep = await send(b, rw.token, b.pid, 'raw/IMG_1.CR3', await sized(80, 60)); expect(rep.status).toBe(200);
+      expect(await b.json<unknown>(rep)).toEqual({ photoId: first.photoId, created: false, replaced: true });
+      const list = async () => (await b.json<(Photo & { width: number })[]>(await b.api(`/api/projects/${b.pid}/photos?stage=culling`, { cookie: b.sarah }))).find((p) => p.id === first.photoId)!;
+      expect((await list()).width).toBe(40); // dimensions wait for the new preview job
+      await b.drain();
+      expect(await list()).toMatchObject({ width: 80, pick: { state: 'confirmed' } });
+    });
+    it('refuses a non-JPEG preview with 415 and an oversize one with 413', async () => {
+      const b = await boot(); const rw = await b.mint({ name: 'Sam', scope: 'read+write' });
+      expect((await send(b, rw.token, b.pid, 'raw/IMG_1.CR3', await sharp({ create: { width: 8, height: 8, channels: 3, background: '#000' } }).png().toBuffer())).status).toBe(415);
+      expect((await send(b, rw.token, b.pid, 'raw/IMG_1.CR3', Buffer.concat([await jpeg(), Buffer.alloc(30 * 1024 * 1024)]))).status).toBe(413);
+    });
   });
 });
