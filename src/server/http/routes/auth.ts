@@ -9,6 +9,8 @@ import { redeemMagicLink, signOut } from '../../auth/magic.js';
 import { requestSignIn } from '../../auth/signin.js';
 import { signup } from '../../auth/signup.js';
 import type { Config } from '../../config.js';
+import type { Auth } from '../../auth/better.js';
+import { verifyContinue, bindSession } from '../../auth/continue.js';
 
 // ponytail: in-process rate limit per app machine; move to Postgres or the edge if abuse spreads across machines.
 const hits = new Map<string, number[]>();
@@ -25,7 +27,7 @@ const ipOf = (c: { req: { header(n: string): string | undefined } }) => c.req.he
 const Signup = z.object({ email: z.string().email(), studioName: z.string().trim().min(1).max(80), over18: z.literal(true) });
 
 /** Routes that cross Studios. They run before the request transaction and open their own system transactions. */
-export const systemRoutes = (config: Config) => new Hono<AppEnv>()
+export const systemRoutes = (config: Config, auth: Auth) => new Hono<AppEnv>()
   .get('/healthz', async (c) => { await asSystem(c.get('root'), (tx) => tx.select({ id: studios.id }).from(studios).limit(1)); return c.json({ ok: true }); })
   .post('/api/auth/request', async (c) => {
     const b = z.object({ email: z.string().email() }).safeParse(await c.req.json().catch(() => null));
@@ -43,6 +45,20 @@ export const systemRoutes = (config: Config) => new Hono<AppEnv>()
     if (limited(`e:${email}`, 5) || limited(`ip:${ipOf(c)}`, 20)) return c.json({ ok: true });
     await asSystem(c.get('root'), (tx) => signup(tx, { email, studioName: b.data.studioName, baseUrl: config.baseUrl }));
     return c.json({ ok: true }); // same answer whether or not the email already had a Studio
+  })
+  .get('/auth/continue', async (c) => {
+    const headers = c.req.raw.headers;
+    const expired = async () => { // no session survives a refused callback; the browser's cookie is cleared too
+      const out = await auth.api.signOut({ headers, asResponse: true });
+      for (const v of out.headers.getSetCookie()) c.header('set-cookie', v, { append: true });
+      return c.redirect('/signin?error=expired');
+    };
+    const s = await auth.api.getSession({ headers });
+    if (!s) return c.redirect('/signin?error=expired');
+    const now = Date.now();
+    const v = verifyContinue(config.betterAuthSecret, c.req.query(), now);
+    if (!v || !(await bindSession(c.get('root'), { sessionId: s.session.id, email: s.user.email.toLowerCase(), studioId: v.studioId, kind: v.kind, now }))) return expired();
+    return c.redirect('/');
   })
   .get('/auth/:token', async (c) => {
     const r = await asSystem(c.get('root'), (tx) => redeemMagicLink(tx, c.req.param('token')));

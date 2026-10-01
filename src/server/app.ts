@@ -63,7 +63,7 @@ export function createApp({ db, config, storage, auth, webRoot = './dist/web' }:
   app.use('/api/*', bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => c.json({ error: 'too_large' }, 413) }));
   app.use('*', sessionMiddleware(db));
   app.use('*', async (c, next) => { c.set('storage', storage); await next(); });
-  app.route('/', systemRoutes(config)); // registered before the request transaction: these open their own system transactions
+  app.route('/', systemRoutes(config, auth)); // registered before the request transaction: these open their own system transactions
   app.get('/api/ba/magic-link/verify', (c) => auth.handler(c.req.raw)); // the only Better Auth route that is public; sign-in links are sent by the job queue
   app.use('/api/*', requestTx(db));
   app.route('/', meRoutes()); app.route('/', projectRoutes()); app.route('/', photoRoutes());
