@@ -4,6 +4,9 @@ import type { Db } from './client.js';
 // A slow client or a stuck handler must not pin a pooled connection: every app transaction carries its own limits.
 const LIMITS = sql`select set_config('statement_timeout', '30s', true), set_config('idle_in_transaction_session_timeout', '60s', true)`;
 
+/** Long work inside a transaction (a job, a publish) must not trip the 60 s idle limit between its statements: Postgres would kill the connection mid-job. */
+export const extendIdle = (tx: Db, ms: number) => tx.execute(sql`select set_config('idle_in_transaction_session_timeout', ${`${ms}ms`}, true)`);
+
 /** One transaction bound to one Studio: row-level security hides every other Studio's rows. */
 export function withStudio<T>(db: Db, studioId: string, fn: (tx: Db) => Promise<T>): Promise<T> {
   return db.transaction(async (tx) => {

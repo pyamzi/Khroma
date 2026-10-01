@@ -10,6 +10,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { promisify } from 'node:util';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
+import { extendIdle } from '../db/tenancy.js';
 import { projects, photos, events, clients, invoices, favorites, jobs } from '../db/schema.js';
 import { ProjectMeta } from './meta.js';
 import { sendEmail } from '../email/send.js';
@@ -67,6 +68,7 @@ export function publishFinals(db: Db, storage: Storage, o: { projectId: string; 
     const rows = ids.length ? await d.select().from(photos).where(and(eq(photos.projectId, o.projectId), eq(photos.stage, 'final'), inArray(photos.id, ids))) : [];
     if (!ids.length || rows.length !== ids.length || rows.some((p) => !p.draftRelPath)) throw new DeliveryError('invalid');
     const key = (id: string, v: PhotoVariant) => photoKey(r.studioId, id, v);
+    await extendIdle(d, 5 * 60_000); // the storage copies below can outlast the 60 s idle limit
     // a draft whose previews have not rendered yet would go live without them
     // validate every draft before copying any: a rejected batch must leave every live object untouched
     await pool(rows, 8, async (p) => { for (const v of ['draft', 'preview.draft', 'thumb.draft'] as const) if (!(await storage.exists(key(p.id, v)))) throw new DeliveryError('invalid'); });

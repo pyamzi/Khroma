@@ -34,5 +34,6 @@ export async function openDb(url: string, o: { migrate?: boolean } = {}): Promis
 export function makePool(url: string): pg.Pool {
   const pool = new pg.Pool({ connectionString: url, max: 20, connectionTimeoutMillis: 10_000, idleTimeoutMillis: 30_000 });
   pool.on('error', (e) => console.error('[db] idle client error', e.message));
+  pool.on('connect', (c) => c.on('error', (e) => console.error('[db] client error', e.message))); // a server-side kill (25P03) of a checked-out client must not crash the process
   return pool;
 }

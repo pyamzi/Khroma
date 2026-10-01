@@ -27,6 +27,14 @@ describe('jobs', () => {
     expect((await oneJob(db)).state).toBe('done');
     expect(await runOnce(db, {}, T0)).toBe('idle');
   });
+  it('gives a job handler an idle-in-transaction allowance as long as its lease', async () => {
+    const { db, as } = await fresh(); const seen: string[] = [];
+    const idle = async (_p: unknown, { db: tx }: { db: Db }) => { const r = await tx.execute(sql`select current_setting('idle_in_transaction_session_timeout') as v`); seen.push((r.rows as { v: string }[])[0]!.v); };
+    await as((tx) => enqueue(tx, { kind: 'build_zip', payload: {}, now: T0 }));
+    await as((tx) => enqueue(tx, { kind: 'echo', payload: {}, now: T0 }));
+    await runOnce(db, { build_zip: idle, echo: idle }, T0); await runOnce(db, { build_zip: idle, echo: idle }, T0);
+    expect(seen.sort()).toEqual(['15min', '1min']);
+  });
   it('retries with backoff then fails', async () => {
     const { db, as } = await fresh(); await as((tx) => enqueue(tx, { kind: 'boom', payload: {}, now: T0 }));
     const h = { boom: async () => { throw new Error('nope'); } };

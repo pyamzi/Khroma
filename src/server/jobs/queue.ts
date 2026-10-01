@@ -1,7 +1,7 @@
 import { and, eq, lte, or, isNull, lt, gte, inArray } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { jobs } from '../db/schema.js';
-import { asSystem, withStudio } from '../db/tenancy.js';
+import { asSystem, withStudio, extendIdle } from '../db/tenancy.js';
 import { newId } from '../ids.js';
 
 /** Throw from a handler when the outcome is uncertain and must not be retried blindly. */
@@ -53,7 +53,8 @@ export async function runOnce(root: Db, handlers: Handlers, now = Date.now(), ki
   try {
     if (!handler) throw new NeedsReview(`no handler for kind ${job.kind}`);
     const done = (tx: Db) => tx.update(jobs).set({ state: 'done', leasedUntil: null, lastError: null }).where(eq(jobs.id, job.id));
-    if (typeof handler === 'function') await withStudio(root, job.studioId, async (tx) => { await handler(job.payload, { db: tx, jobId: job.id, studioId: job.studioId }); await done(tx); });
+    // ponytail: a long job holds one pooled connection for its whole duration; move the I/O outside the transaction if connections get scarce.
+    if (typeof handler === 'function') await withStudio(root, job.studioId, async (tx) => { await extendIdle(tx, LEASE_MS[job.kind] ?? 60_000); await handler(job.payload, { db: tx, jobId: job.id, studioId: job.studioId }); await done(tx); });
     else { await handler.run(job.payload, { root, jobId: job.id, studioId: job.studioId }); await asSystem(root, done); }
   } catch (e) {
     const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
