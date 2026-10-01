@@ -1,5 +1,5 @@
 import { basename, extname } from 'node:path';
-import { and, count, desc, eq, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import type { Db } from '../db/client.js';
 import { photos, projects, events, comments } from '../db/schema.js';
@@ -100,6 +100,11 @@ export async function libraryPage(db: Db, o: { cursor?: string; limit: number })
   const [{ n }] = await db.select({ n: count() }).from(photos).where(inLibrary) as [{ n: number }];
   const items = rows.slice(0, o.limit).map(({ checksum, ...r }) => ({ ...r, v: previewVersion({ checksum, readyAt: r.readyAt }) })); const last = items.at(-1);
   return { total: n, items, nextCursor: rows.length > o.limit && last ? `${last.createdAt}|${last.id}` : null };
+}
+
+/** Exact state of the given Library photos, `failed` included (the list hides those). Unknown or foreign ids are omitted. */
+export async function libraryStatus(db: Db, ids: string[]): Promise<{ id: string; status: string }[]> {
+  return db.select({ id: photos.id, status: photos.status }).from(photos).where(and(inArray(photos.id, ids), eq(photos.inLibrary, true), isNull(photos.projectId)));
 }
 
 /** Library-only photos (no project): the row and every object. */

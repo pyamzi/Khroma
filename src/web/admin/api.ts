@@ -23,6 +23,8 @@ export const publishFinals = (projectId: string, photoIds: string[], expectedVer
 export type LibraryItem = { id: string; status: 'uploading' | 'processing' | 'ready'; width: number | null; height: number | null; createdAt: string; projectId: string | null; projectTitle: string | null; v: string };
 export type LibraryPage = { total: number; items: LibraryItem[]; nextCursor: string | null };
 export const libraryPage = (limit: number, cursor?: string) => api<LibraryPage>(`/api/library?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+export const libraryStatus = (ids: string[]) => api<{ id: string; status: string }[]>(`/api/library/status?ids=${ids.join(',')}`);
+export const deleteLibraryPhoto = (photoId: string) => api<{ ok: true }>(`/api/library/${photoId}`, { method: 'DELETE' });
 export const startUpload = (name: string, size: number) => api<{ photoId: string; uploadUrl: string; contentType: string }>('/api/library/uploads', { method: 'POST', body: JSON.stringify({ name, size }) });
 export const completeUpload = (photoId: string) => api<{ ok: true }>(`/api/library/uploads/${photoId}/complete`, { method: 'POST', body: '{}' });
 /** XHR, not fetch, for upload progress. R2 signs the content type, so it must be exactly the one startUpload returned; no other headers (cross-origin, no cookies). */

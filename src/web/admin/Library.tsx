@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { ApiError } from '../api';
 import { Shell } from './Shell';
 import { Button, Empty } from './ui';
-import { completeUpload, libraryPage, putFile, startUpload, type LibraryItem } from './api';
+import { completeUpload, deleteLibraryPhoto, libraryPage, libraryStatus, putFile, startUpload, type LibraryItem } from './api';
 
 const MAX_BYTES = 52_428_800;
 const EXT = ['.jpg', '.jpeg', '.png', '.webp', '.heic'];
-const PAGE = 60; const SERVER_MAX = 200; const CONCURRENCY = 3;
+const PAGE = Number(new URLSearchParams(window.location.search).get('pageSize')) || 60; // ?pageSize= is a test hook
+const SERVER_MAX = 200; const STATUS_MAX = 100; const CONCURRENCY = 3;
 /** The server's refusal codes (too_large 413, unsupported 415), worded once for the browser pre-check and the server's reply alike. */
 const REFUSAL: Record<string, string> = { too_large: 'over the 50 MB limit', unsupported: 'not a supported photo type' };
 const refusal = (f: File) => EXT.some((e) => f.name.toLowerCase().endsWith(e)) ? (f.size > MAX_BYTES ? REFUSAL.too_large : null) : REFUSAL.unsupported;
@@ -14,37 +15,48 @@ type Pending = { key: number; name: string; pct: number };
 
 export function Library() {
   const [items, setItems] = useState<LibraryItem[]>([]); const [total, setTotal] = useState<number | null>(null); const [next, setNext] = useState<string | null>(null);
-  const [pending, setPending] = useState<Pending[]>([]); const [notices, setNotices] = useState<string[]>([]); const [over, setOver] = useState(false);
+  const [pending, setPending] = useState<Pending[]>([]); const [notices, setNotices] = useState<string[]>([]); const [over, setOver] = useState(false); const [watching, setWatching] = useState(0);
   const input = useRef<HTMLInputElement>(null); const queue = useRef<File[]>([]); const running = useRef(0); const keys = useRef(0);
   const mine = useRef(new Map<string, string>()); // photo id -> name, uploaded in this tab and not yet seen ready
   const size = useRef(PAGE); const seq = useRef(0);
   const notify = (m: string) => setNotices((n) => [...n, m]);
 
-  /** Refetches everything loaded so far (so polling never drops "Load more" pages; ponytail: capped at the server's 200). */
+  /** Refetches everything loaded so far, for display (so polling never drops "Load more" pages; ponytail: capped at the server's 200). */
   const load = useCallback(async () => {
     const mark = ++seq.current; const p = await libraryPage(Math.min(SERVER_MAX, size.current));
     if (mark !== seq.current) return; // a newer response is in flight
     setItems(p.items); setTotal(p.total); setNext(p.nextCursor);
-    // a photo of ours that ended ready leaves `mine`; one that vanished from the list failed processing (the server hides failed rows)
-    for (const [id, name] of mine.current) {
-      const it = p.items.find((i) => i.id === id);
-      if (it?.status === 'ready') mine.current.delete(id);
-      else if (!it) { mine.current.delete(id); notify(`${name}: Couldn't process this file`); }
+  }, []);
+  /** Exact states of this tab's uploads, whether or not they are in the loaded window. Only `failed` is a failure; an id the server no longer knows was deleted or swept. */
+  const check = useCallback(async () => {
+    const ids = [...mine.current.keys()];
+    for (let i = 0; i < ids.length; i += STATUS_MAX) {
+      const got = new Map((await libraryStatus(ids.slice(i, i + STATUS_MAX))).map((r) => [r.id, r.status]));
+      for (const id of ids.slice(i, i + STATUS_MAX)) {
+        const st = got.get(id);
+        if (st === 'failed') notify(`${mine.current.get(id)}: Couldn't process this file`);
+        if (st !== 'processing' && st !== 'uploading') mine.current.delete(id);
+      }
     }
+    setWatching(mine.current.size);
   }, []);
   const more = async () => { const p = await libraryPage(PAGE, next!); size.current += p.items.length; setItems((x) => [...x, ...p.items.filter((n) => !x.some((o) => o.id === n.id))]); setTotal(p.total); setNext(p.nextCursor); };
 
   useEffect(() => { void load().catch(() => setTotal(0)); }, [load]);
-  const busy = pending.length > 0 || items.some((i) => i.status === 'processing');
-  useEffect(() => { if (!busy) return; const t = setInterval(() => void load().catch(() => undefined), 2000); return () => clearInterval(t); }, [busy, load]);
+  const busy = pending.length > 0 || watching > 0 || items.some((i) => i.status === 'processing');
+  useEffect(() => { if (!busy) return; const t = setInterval(() => void Promise.all([load(), check()]).catch(() => undefined), 2000); return () => clearInterval(t); }, [busy, load, check]);
 
   const uploadOne = async (file: File, key: number) => {
     const set = (pct: number) => setPending((p) => p.map((x) => x.key === key ? { ...x, pct } : x));
+    let id: string | undefined;
     try {
-      const up = await startUpload(file.name, file.size);
+      const up = await startUpload(file.name, file.size); id = up.photoId;
       await putFile(up.uploadUrl, file, up.contentType, set);
-      await completeUpload(up.photoId); mine.current.set(up.photoId, file.name);
-    } catch (e) { notify(`${file.name}: ${e instanceof ApiError && REFUSAL[e.message] ? REFUSAL[e.message] : "Couldn't upload this file"}`); }
+      await completeUpload(up.photoId); mine.current.set(up.photoId, file.name); setWatching(mine.current.size);
+    } catch (e) {
+      if (id) await deleteLibraryPhoto(id).catch(() => undefined); // best effort: no ghost row until the hourly sweep
+      notify(`${file.name}: ${e instanceof ApiError && REFUSAL[e.message] ? REFUSAL[e.message] : "Couldn't upload this file"}`);
+    }
     await load().catch(() => undefined); // the photo is in the list before its placeholder goes
     setPending((p) => p.filter((x) => x.key !== key));
   };

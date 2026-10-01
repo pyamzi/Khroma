@@ -56,6 +56,19 @@ describe('library over HTTP', () => {
     expect((await s.page()).total).toBe(0);
   });
 
+  it('status reports exact states, including failed, and omits other Studios and unknown ids', async () => {
+    const s = await setup(); const bad = await s.start('a.jpg'); const good = await s.start('b.jpg'); const waiting = await s.start('c.jpg');
+    await s.complete(bad.photoId); await s.put(good, await jpegBytes()); await s.complete(good.photoId); await s.drain();
+    const ids = [bad.photoId, good.photoId, waiting.photoId, 'nope'];
+    const get = async (cookie: string, list: string[]) => s.json<{ id: string; status: string }[]>(await s.api(`/api/library/status?ids=${list.join(',')}`, { cookie }));
+    expect((await get(s.owner, ids)).sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: bad.photoId, status: 'failed' }, { id: good.photoId, status: 'ready' }, { id: waiting.photoId, status: 'uploading' }].sort((a, b) => a.id.localeCompare(b.id)));
+    const other = (await s.signupOwner(`b${n}@x.com`, 'B')).cookie;
+    expect(await get(other, ids)).toEqual([]);
+    expect((await s.api(`/api/library/status?ids=${Array.from({ length: 101 }, (_, i) => `x${i}`).join(',')}`, { cookie: s.owner })).status).toBe(400);
+    expect((await s.api('/api/library/status', { cookie: s.owner })).status).toBe(400);
+  });
+
   it('a .jpg that is a PDF ends failed and its object is deleted', async () => {
     const s = await setup(); const up = await s.start('a.jpg');
     await s.put(up, Buffer.from('%PDF-1.4\n%fake'));

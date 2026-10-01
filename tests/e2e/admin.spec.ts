@@ -88,3 +88,32 @@ test('owner uploads a photo to the Library and sees it ready', async ({ page }) 
   await page.getByTestId('library-input').setInputFiles({ name: 'clip.gif', mimeType: 'image/gif', buffer: Buffer.from('GIF89a') });
   await expect(page.getByText('clip.gif: not a supported photo type')).toBeVisible();
 });
+
+const jpeg = async (name: string) => { const f = join(mkdtempSync(join(tmpdir(), 'lib-')), name); await sharp({ create: { width: 200, height: 100, channels: 3, background: '#c63' } }).jpeg().toFile(f); return f; };
+
+test('a failed upload leaves no tile and no count, and says so', async ({ page }) => {
+  await page.goto(await srv.signInLink('owner@x.com'));
+  await page.goto(`${srv.baseUrl}/admin/library`);
+  await expect(page.getByText(/^\d+ photos?$/)).toBeVisible();
+  const before = await page.evaluate(async () => (await (await fetch('/api/library?limit=1', { headers: { 'x-requested-with': 'fetch' } })).json()).total);
+  await page.route('**/dev/storage/**', (r) => (r.request().method() === 'PUT' ? r.fulfill({ status: 403 }) : r.continue()));
+  await page.getByTestId('library-input').setInputFiles(await jpeg('bad.jpg'));
+  await expect(page.getByRole('alert')).toHaveText(/bad\.jpg: Couldn't upload this file/);
+  await expect(page.getByTestId('library-pending')).toHaveCount(0);
+  const total = () => page.evaluate(async () => (await (await fetch('/api/library?limit=1', { headers: { 'x-requested-with': 'fetch' } })).json()).total);
+  await expect.poll(total).toBe(before); // the half-made row is gone
+  await expect(page.getByText(`${before} photo`)).toBeVisible();
+});
+
+test('a drop larger than the page shows no false failures', async ({ page }) => {
+  await page.goto(await srv.signInLink('owner@x.com'));
+  await page.goto(`${srv.baseUrl}/admin/library?pageSize=2`); // a window smaller than the drop: the old ones leave it while still processing
+  await expect(page.getByText(/^\d+ photos?$/)).toBeVisible();
+  const files = await Promise.all(['a', 'b', 'c', 'd'].map((n) => jpeg(`${n}.jpg`)));
+  const readyCount = () => page.evaluate(async () => (await (await fetch('/api/library?limit=200', { headers: { 'x-requested-with': 'fetch' } })).json()).items.filter((i: { status: string }) => i.status === 'ready').length);
+  const was = await readyCount();
+  await page.getByTestId('library-input').setInputFiles(files);
+  await expect.poll(readyCount, { timeout: 30_000 }).toBe(was + 4);
+  await page.waitForTimeout(2500); // one more poll cycle
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
