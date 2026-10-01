@@ -79,4 +79,9 @@ describe('r2Storage', () => {
     expect(await make(404).exists('k')).toBe(false);
     await expect(make(500).exists('k')).rejects.toThrow(/500/);
   });
+  it('r2 copy fails loudly on a missing source or a 200 with an <Error> body', async () => {
+    await expect(make(404).copy('s/gone', 's/c/y')).rejects.toThrow(/source missing/);
+    await expect(make(200, '<Error><Code>InternalError</Code></Error>').copy('s/a', 's/b')).rejects.toThrow(/error in response body/);
+    await expect(make(200, '<CopyObjectResult><ETag>x</ETag></CopyObjectResult>').copy('s/a', 's/b')).resolves.toBeUndefined();
+  });
 });

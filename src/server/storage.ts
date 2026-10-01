@@ -66,7 +66,11 @@ export function r2Storage(o: { accountId: string; accessKeyId: string; secretAcc
     async delete(key) { await call('DELETE', key); },
     presignPut: (key, contentType, ttlSec) => presign('PUT', key, ttlSec, {}, { 'content-type': contentType }),
     presignGet: (key, ttlSec, downloadName) => presign('GET', key, ttlSec, downloadName ? { 'response-content-disposition': attachment(downloadName) } : {}),
-    async copy(from, to) { await call('PUT', to, { headers: { 'x-amz-copy-source': `/${o.bucket}/${encodeKey(from)}` } }); },
+    async copy(from, to) {
+      const res = await call('PUT', to, { headers: { 'x-amz-copy-source': `/${o.bucket}/${encodeKey(from)}` } });
+      // a missing source is a 404 (which `call` lets through); S3 can also fail a CopyObject with a 200 carrying an <Error> body
+      if (res.status === 404 || (await res.text()).includes('<Error>')) throw new Error(`R2 COPY ${from} → ${to} failed: ${res.status === 404 ? 'source missing' : 'error in response body'}`);
+    },
     async exists(key) { return (await call('HEAD', key)).status === 200; },
   };
 }
