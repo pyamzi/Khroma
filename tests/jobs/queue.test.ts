@@ -106,10 +106,14 @@ describe('jobs across Studios', () => {
     const { db, studioId, as } = await fresh(); const { id } = await as((tx) => enqueue(tx, { kind: 'sys', payload: { v: 1 }, now: T0 }));
     let seen: unknown;
     await runOnce(db, { sys: { system: true, run: async (p, ctx) => {
-      const res = await ctx.root.execute<{ role: string; open: boolean }>(sql`select current_user as role, now() = statement_timestamp() as open`);
-      seen = { p, root: ctx.root === db, jobId: ctx.jobId, studioId: ctx.studioId, row: ('rows' in res ? res.rows : res)[0] };
+      const row = async <T,>(q: ReturnType<typeof sql>) => { const r = await ctx.root.execute<T>(q); return ('rows' in r ? r.rows : r)[0] as T; };
+      // inside a transaction now() is frozen at its start; outside, each statement gets its own now()
+      const a = await row<{ role: string; t: string }>(sql`select current_user as role, now()::text as t`);
+      await ctx.root.execute(sql`select pg_sleep(0.01)`);
+      const b = await row<{ t: string }>(sql`select now()::text as t`);
+      seen = { p, root: ctx.root === db, jobId: ctx.jobId, studioId: ctx.studioId, role: a.role, fresh: a.t !== b.t };
     } } }, T0);
-    expect(seen).toEqual({ p: { v: 1 }, root: true, jobId: id, studioId, row: { role: 'postgres', open: true } }); // no og_* role, no transaction start time
+    expect(seen).toEqual({ p: { v: 1 }, root: true, jobId: id, studioId, role: 'postgres', fresh: true }); // no og_* role, no open transaction
     expect((await oneJob(db)).state).toBe('done');
   });
   it('a failing system handler backs off like any other', async () => {
