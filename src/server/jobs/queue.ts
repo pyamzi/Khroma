@@ -51,6 +51,7 @@ export async function runOnce(root: Db, handlers: Handlers, now = Date.now()): P
     });
   } catch (e) {
     const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    console.error(`[jobs] ${job.kind} ${job.id} failed (attempt ${job.attempts}): ${msg}`);
     const set = e instanceof NeedsReview ? { state: 'needs_review' as const, leasedUntil: null, lastError: msg }
       : job.attempts >= MAX_ATTEMPTS ? { state: 'failed' as const, leasedUntil: null, lastError: msg }
       : { state: 'pending' as const, leasedUntil: null, lastError: msg, nextAt: now + BACKOFF_MS[job.attempts - 1]! };
