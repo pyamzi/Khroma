@@ -8,11 +8,11 @@ const prod = { ...base, NODE_ENV: 'production', DATABASE_URL: 'postgres://u:p@h/
 describe('loadConfig', () => {
   it('parses required values and defaults', () => {
     const c = loadConfig(base);
-    expect(c).toMatchObject({ databaseUrl: 'pglite://memory', baseUrl: 'https://og.example', port: 3000, secureCookies: true, emailFrom: 'no-reply@og.example', production: false });
+    expect(c).toMatchObject({ databaseUrl: 'pglite://memory', baseUrl: 'https://og.example', port: 3000, emailFrom: 'no-reply@og.example', production: false });
     expect(c.smtpUrl).toBeUndefined(); expect(c.r2).toBeUndefined();
   });
   it('requires a database url', () => { expect(() => loadConfig({ BASE_URL: 'https://og.example' })).toThrow(/DATABASE_URL/); });
-  it('turns off secure cookies for http base urls', () => { expect(loadConfig({ ...base, BASE_URL: 'http://localhost:3000/' })).toMatchObject({ secureCookies: false, baseUrl: 'http://localhost:3000' }); });
+  it('drops a trailing slash from BASE_URL', () => { expect(loadConfig({ ...base, BASE_URL: 'http://localhost:3000/' }).baseUrl).toBe('http://localhost:3000'); });
   it('R2 variables are all or none', () => {
     expect(loadConfig({ ...base, ...r2 }).r2).toEqual({ accountId: 'acc', accessKeyId: 'ak', secretAccessKey: 'sk', bucket: 'b' });
     expect(() => loadConfig({ ...base, R2_BUCKET: 'b' })).toThrow(/R2_ACCOUNT_ID/);
@@ -32,6 +32,12 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...prod, BETTER_AUTH_SECRET: 'short' })).toThrow(/BETTER_AUTH_SECRET is required in production/);
     expect(() => loadConfig({ ...prod, BETTER_AUTH_SECRET: undefined })).toThrow(/BETTER_AUTH_SECRET is required in production/);
     expect(loadConfig({ ...prod, BETTER_AUTH_SECRET: 'x'.repeat(32) }).betterAuthUrl).toBe('https://og.example');
+  });
+  it('production needs BETTER_AUTH_URL on the same https origin as BASE_URL', () => {
+    expect(loadConfig({ ...prod, BETTER_AUTH_URL: 'https://og.example/' }).betterAuthUrl).toBe('https://og.example');
+    expect(() => loadConfig({ ...prod, BETTER_AUTH_URL: 'https://other.example' })).toThrow(/BETTER_AUTH_URL/);
+    expect(() => loadConfig({ ...prod, BETTER_AUTH_URL: 'http://localhost:3000' })).toThrow(/BETTER_AUTH_URL/);
+    expect(() => loadConfig({ ...prod, BASE_URL: 'http://og.example' })).toThrow(/https/);
   });
   it('dev and tests default to a fixed 32+ character secret and the base url', () => {
     const c = loadConfig({ ...base, BASE_URL: 'http://localhost:3000/' });

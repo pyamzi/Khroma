@@ -17,7 +17,7 @@ const Env = z.object({
 const DEV_AUTH_SECRET = 'opengallery-dev-only-auth-secret-0123456789'; // 32+ chars; never used in production
 
 export type Config = {
-  databaseUrl: string; baseUrl: string; port: number; smtpUrl?: string; emailFrom: string; production: boolean; secureCookies: boolean;
+  databaseUrl: string; baseUrl: string; port: number; smtpUrl?: string; emailFrom: string; production: boolean;
   betterAuthSecret: string; betterAuthUrl: string;
   r2?: { accountId: string; accessKeyId: string; secretAccessKey: string; bucket: string };
 };
@@ -32,10 +32,11 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
   if (production && e.DATABASE_URL.startsWith('pglite:')) throw new Error('pglite is for tests and local dev, not production');
   if (production && (e.BETTER_AUTH_SECRET ?? '').length < 32) throw new Error('BETTER_AUTH_SECRET is required in production');
   const baseUrl = e.BASE_URL.replace(/\/$/, '');
+  const betterAuthUrl = e.BETTER_AUTH_URL?.replace(/\/$/, '') ?? baseUrl;
+  if (production && (new URL(betterAuthUrl).origin !== new URL(baseUrl).origin || !baseUrl.startsWith('https://'))) throw new Error('BETTER_AUTH_URL must be the https origin of BASE_URL in production'); // sign-in links would point elsewhere
   return {
     databaseUrl: e.DATABASE_URL, baseUrl, port: e.PORT, smtpUrl, emailFrom: e.EMAIL_FROM ?? `no-reply@${new URL(baseUrl).hostname}`,
-    production, secureCookies: baseUrl.startsWith('https://'),
-    betterAuthSecret: e.BETTER_AUTH_SECRET || DEV_AUTH_SECRET, betterAuthUrl: e.BETTER_AUTH_URL?.replace(/\/$/, '') ?? baseUrl,
+    production, betterAuthSecret: e.BETTER_AUTH_SECRET || DEV_AUTH_SECRET, betterAuthUrl,
     r2: setR2.length ? { accountId: e.R2_ACCOUNT_ID!, accessKeyId: e.R2_ACCESS_KEY_ID!, secretAccessKey: e.R2_SECRET_ACCESS_KEY!, bucket: e.R2_BUCKET! } : undefined,
   };
 }

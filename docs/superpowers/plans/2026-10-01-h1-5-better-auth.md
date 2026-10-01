@@ -228,7 +228,7 @@ it('signup sends one link from OpenGallery; after confirming, links come from th
 - [ ] **Step 1: Check the staged secrets** — `fly secrets list -a opengallery` shows `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL`, with `BETTER_AUTH_URL` = `https://opengallery.fly.dev`.
 - [ ] **Step 2: Deploy** — `fly deploy -a opengallery`. Expected: the release step's migration passes and `/healthz` returns 200.
 - [ ] **Step 3: Tenancy gate** — from the main checkout, after `npm ci`: `DATABASE_URL="$(npx -y neon@latest connection-string --project-id holy-violet-48717844 --pooled --role-name neondb_owner --database-name neondb)" npm run check:tenancy` prints `ok`, which now includes the auth-table privilege check.
-- [ ] **Step 4: Real sign-in** — the owner requests a link at `/signin`, gets the email, clicks it, and lands signed in to their Studio. A second click on the same link shows "link expired".
+- [ ] **Step 4: Real sign-in** — the owner requests a link at `/signin`, gets the email, clicks it, and lands signed in to their Studio. A second click on the same link in the same browser lands on the Dashboard, still signed in; in a different browser it shows "link expired".
 - [ ] **Step 5: Commit** — `docs: H1.5 Better Auth deploy notes`
 
 ---

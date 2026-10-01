@@ -33,7 +33,13 @@ To import secrets from a local `.env` file: `fly secrets import -a opengallery -
 
 Magic links are minted when the email job sends them. Team links work for 15 minutes and Client links for 30 days, and each link signs into one Studio.
 
-The first deploy of H1.5 signs everyone out once. Lightroom plugin tokens keep working.
+The first deploy of H1.5 signs everyone out once. Lightroom plugin tokens keep working. While it rolls out, the old machine may answer with errors for tens of seconds until the new one takes over; then everyone signs in again. In production the app refuses to start unless `BETTER_AUTH_URL` has the same https origin as `BASE_URL`.
+
+After that deploy, run this as the owner in the Neon SQL editor. It should return 0, meaning no H1 sessions are left:
+
+```sql
+select count(*) from sessions where kind in ('admin','client');
+```
 
 Better Auth's tables (`auth_*`) are not visible to the app's tenant roles, and `npm run check:tenancy` checks that.
 
