@@ -56,6 +56,8 @@ describe('publish api', () => {
     const stale = await publish([f1], v - 1); expect(stale.status).toBe(409);
     expect(await clientPhotos()).toEqual([]);
     expect((await publish([f1, 'nope'])).status).toBe(422); // unknown photo: nothing published
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => `x${i}`);
+    expect((await publish(ids(201))).status).toBe(400); expect((await publish(ids(200))).status).toBe(422); // the cap is 200 ids per request
     expect(await clientPhotos()).toEqual([]);
     const ok = await publish([f1]); expect(ok.status).toBe(200); expect(await ok.json()).toEqual({ published: 1 });
     expect((await clientPhotos()).map((p) => p.id)).toEqual([f1]); // f2 is still a draft

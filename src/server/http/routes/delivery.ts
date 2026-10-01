@@ -5,7 +5,7 @@ import { loadProject, loadPhoto, requireKind } from '../access.js';
 import { publishFinals, requestDownload, favoritesOf, setFavorite, viewerKey, DeliveryError } from '../../domain/delivery.js';
 import type { Config } from '../../config.js';
 
-const Publish = z.object({ photoIds: z.array(z.string().min(1)).min(1).max(1000), expectedVersion: z.number().int() });
+const Publish = z.object({ photoIds: z.array(z.string().min(1)).min(1).max(200), expectedVersion: z.number().int() });
 const Download = z.object({ photoId: z.string().min(1).optional() });
 const Favorite = z.object({ favorite: z.boolean() });
 

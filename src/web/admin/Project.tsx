@@ -55,7 +55,12 @@ export function Project({ id, me }: { id: string; me: Me }) {
   const publish = async () => {
     try {
       const drafts = (await api<PhotoItem[]>(`/api/projects/${id}/photos?stage=final`)).filter((x) => x.hasDraft).map((x) => x.id);
-      const r = await publishFinals(id, drafts, p.stateVersion); setToast(`Published ${r.published}`);
+      let n = 0; let v = p.stateVersion; // the server takes 200 ids at most: send 100 at a time, each batch on the fresh version the previous one produced
+      for (let i = 0; i < drafts.length; i += 100) {
+        if (i) v = (await api<Detail>(`/api/projects/${id}`)).stateVersion;
+        n += (await publishFinals(id, drafts.slice(i, i + 100), v)).published;
+      }
+      setToast(`Published ${n}`);
     } catch (e) { setToast(e instanceof ApiError && e.status === 409 ? 'The project changed. Reloaded; try again.' : e instanceof ApiError ? `Error: ${e.message}` : 'Something went wrong'); }
     await load();
   };
