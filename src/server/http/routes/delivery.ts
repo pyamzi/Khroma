@@ -5,7 +5,7 @@ import { loadProject, requireKind } from '../access.js';
 import { publishFinals, DeliveryError } from '../../domain/delivery.js';
 import type { Config } from '../../config.js';
 
-const Publish = z.object({ photoIds: z.array(z.string().min(1)).min(1).max(5000), expectedVersion: z.number().int() });
+const Publish = z.object({ photoIds: z.array(z.string().min(1)).min(1).max(1000), expectedVersion: z.number().int() });
 
 export const deliveryRoutes = (config: Config) => new Hono<AppEnv>()
   .post('/api/projects/:id/publish', requireKind('admin'), loadProject(), async (c) => {

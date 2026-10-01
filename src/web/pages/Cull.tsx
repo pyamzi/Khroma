@@ -102,7 +102,7 @@ export function Cull({ id, me }: { id: string; me: Me }) {
           {visible.map((p, i) => (
             <div key={p.id} data-testid="tile" data-picked={p.pick ? p.pick.state : 'no'} className="relative aspect-square bg-neutral-200 dark:bg-neutral-800">
               <button onClick={() => setOpen(photos.indexOf(p))} className="absolute inset-0" aria-label="Open photo">
-                {p.previewReady && <img src={`/api/photos/${p.id}/preview?size=thumb`} loading={i < 30 ? 'eager' : 'lazy'} className="h-full w-full object-cover" alt="" />}
+                {p.previewReady && <img src={`/api/photos/${p.id}/preview?size=thumb&v=${p.v}`} loading={i < 30 ? 'eager' : 'lazy'} className="h-full w-full object-cover" alt="" />}
               </button>
               {p.kind === 'video' && <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-xs text-white">▶</span>}
               {p.comments.total > 0 && <span className="absolute left-1 bottom-1 rounded-full bg-black/60 px-1.5 text-xs text-white">{p.comments.total}</span>}

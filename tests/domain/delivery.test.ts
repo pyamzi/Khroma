@@ -7,8 +7,10 @@ import { defaultProjectMeta } from '../../src/server/domain/meta.js';
 import { addPhoto } from '../../src/server/domain/photos.js';
 import { setPick } from '../../src/server/domain/selection.js';
 import { uploadFinal } from '../../src/server/domain/finals.js';
-import { publishFinals, DeliveryError } from '../../src/server/domain/delivery.js';
+import { publishFinals, DeliveryError, makeDeliveryHandlers } from '../../src/server/domain/delivery.js';
 import { tiffBytes } from '../fixtures/make.js';
+import type { Db } from '../../src/server/db/client.js';
+import type { Handler } from '../../src/server/jobs/queue.js';
 import { studioTestDb } from '../helpers.js';
 
 const jpeg = (bg = '#c33') => sharp({ create: { width: 40, height: 30, channels: 3, background: bg } }).jpeg().toBuffer();
@@ -35,6 +37,9 @@ async function seed(o: { emails?: string[]; notify?: boolean; included?: number 
   const text = async (id: string, v: Parameters<typeof photoKey>[2]) => { const b = await storage.getBytes(photoKey(s.studioId, id, v)); return b && new TextDecoder().decode(b); };
   return { ...s, storage, src, src2, draft, proj, pub, text };
 }
+const runDeleteJob = async (db: Db, storage: Storage) => {
+  for (const j of (await db.select().from(jobs)).filter((x) => x.kind === 'delete_objects')) await (makeDeliveryHandlers(storage).delete_objects as Handler)(j.payload, { db, jobId: j.id, studioId: j.studioId });
+};
 const code = (p: Promise<unknown>) => p.then(() => 'ok', (e) => (e instanceof DeliveryError ? e.code : String(e)));
 
 describe('publishFinals', () => {
@@ -47,20 +52,34 @@ describe('publishFinals', () => {
     expect(row).toMatchObject({ live: true, draftRelPath: null, inLibrary: true });
     expect(await text(f, 'preview')).toBe('preview.draft:#c33'); expect(await text(f, 'thumb')).toBe('thumb.draft:#c33'); expect(await text(f, 'medium')).toBe('medium.draft:#c33');
     expect((await sharp((await storage.getBytes(photoKey(studioId, f, 'original')))!).metadata()).width).toBe(40);
-    for (const v of ['draft', 'preview.draft', 'medium.draft', 'thumb.draft'] as const) expect(await storage.exists(photoKey(studioId, f, v))).toBe(false);
+    for (const v of ['draft', 'preview.draft', 'medium.draft', 'thumb.draft'] as const) expect(await storage.exists(photoKey(studioId, f, v))).toBe(true); // deleted by the job, after the commit
     const done = async (id: string) => (await db.select().from(photos).where(eq(photos.id, id)))[0]!.editState;
     expect(await done(src)).toBe('done'); expect(await done(src2)).toBe('none'); // only sources with a live final
     expect(await proj()).toMatchObject({ productionState: 'delivered', stateVersion: before + 1 });
     const ev = (await db.select().from(events).where(eq(events.type, 'finals_published')))[0]!; expect(ev.payload).toEqual({ photoIds: [f] });
   });
 
-  it('a replacement keeps the photo id and swaps the live bytes; a draft with no medium.draft still publishes', async () => {
-    const { storage, studioId, src, draft, pub, text } = await seed();
-    const f = await draft('A.jpg', src, '#c33'); await pub([f]);
+  it('a replacement keeps the photo id and swaps the live bytes; with no medium.draft the stale live medium is dropped', async () => {
+    const { db, storage, studioId, src, draft, pub, text } = await seed();
+    const f = await draft('A.jpg', src, '#c33'); await pub([f]); await runDeleteJob(db, storage); // publish 1's drafts go before the replacement arrives
     const f2 = await draft('A.jpg', src, '#33c', false); expect(f2).toBe(f);
     await storage.put(photoKey(studioId, f, 'medium'), new TextEncoder().encode('old-medium'), 'image/jpeg');
     await pub([f]);
-    expect(await text(f, 'preview')).toBe('preview.draft:#33c'); expect(await text(f, 'medium')).toBe('old-medium'); // missing medium.draft is skipped, not an error
+    expect(await text(f, 'preview')).toBe('preview.draft:#33c');
+    await runDeleteJob(db, storage); expect(await text(f, 'medium')).toBeNull(); // the route then falls back to the new preview
+  });
+
+  it('drafts are deleted by a job after commit; a failing delete leaves the publish done and the job pending; the handler is idempotent', async () => {
+    const { db, storage, studioId, src, draft, pub, proj } = await seed();
+    const f = await draft('A.jpg', src); await pub([f]);
+    const [job] = (await db.select().from(jobs)).filter((j) => j.kind === 'delete_objects'); expect(job!.idempotencyKey).toBe(`publish-drafts:${pid}:${(await proj()).stateVersion}`);
+    expect((job!.payload as { keys: string[] }).keys.sort()).toEqual(['draft', 'medium.draft', 'preview.draft', 'thumb.draft'].map((v) => photoKey(studioId, f, v as 'draft')).sort());
+    const failing = { ...storage, delete: async () => { throw new Error('r2 down'); } } as Storage;
+    await expect(makeDeliveryHandlers(failing).delete_objects!(job!.payload, { db, jobId: job!.id, studioId } as never)).rejects.toThrow('r2 down');
+    expect((await proj()).productionState).toBe('delivered'); expect(await storage.exists(photoKey(studioId, f, 'draft'))).toBe(true);
+    await runDeleteJob(db, storage); await runDeleteJob(db, storage); // twice: missing keys are ignored
+    for (const v of ['draft', 'preview.draft', 'medium.draft', 'thumb.draft'] as const) expect(await storage.exists(photoKey(studioId, f, v))).toBe(false);
+    expect(await storage.exists(photoKey(studioId, f, 'preview'))).toBe(true);
   });
 
   it('a stale expectedVersion is a conflict and changes nothing', async () => {

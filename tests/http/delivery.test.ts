@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import sharp from 'sharp';
+import { runOnce } from '../../src/server/jobs/queue.js';
 import { boot as bootApp } from './boot.js';
 
 const jpeg = (bg = '#c33') => sharp({ create: { width: 40, height: 30, channels: 3, background: bg } }).jpeg().toBuffer();
-type Photo = { id: string; hasDraft: boolean };
+type Photo = { id: string; hasDraft: boolean; v: string };
 
 /** A project in editing with two drafts uploaded from Lightroom and the client's pick submitted. */
 async function boot() {
@@ -48,12 +49,14 @@ describe('publish api', () => {
   });
 
   it('publishing a replacement keeps the photo id and swaps the bytes the Client sees', async () => {
-    const { api, sarah, upload, drain, publish, f1, a } = await boot();
-    await publish([f1]);
+    const { api, sarah, upload, drain, publish, clientPhotos, f1, a } = await boot();
+    await publish([f1]); const v1 = (await clientPhotos())[0]!.v; expect(v1).toMatch(/^[0-9a-f]{12}$/);
     const before = Buffer.from(await (await api(`/api/photos/${f1}/preview?size=thumb`, { cookie: sarah })).arrayBuffer());
     const r = await upload('A.jpg', a, 'u3', '#33c'); expect(r.photoId).toBe(f1); await drain();
     expect(Buffer.from(await (await api(`/api/photos/${f1}/preview?size=thumb`, { cookie: sarah })).arrayBuffer()).equals(before)).toBe(true); // unchanged until published
+    const mid = (await clientPhotos())[0]!.v; // the replacement's checksum has landed but the Client still sees the old bytes
     expect((await publish([f1])).status).toBe(200);
+    const v2 = (await clientPhotos())[0]!.v; expect(v2).not.toBe(v1); expect(v2).not.toBe(mid); // the cached preview URL changes at publish
     const after = Buffer.from(await (await api(`/api/photos/${f1}/preview?size=thumb`, { cookie: sarah })).arrayBuffer());
     expect(after.equals(before)).toBe(false);
     const { data } = await sharp(after).raw().toBuffer({ resolveWithObject: true }); expect(data[2]! > data[0]!).toBe(true); // blue now
@@ -74,5 +77,16 @@ describe('publish api', () => {
     const sent = mail.sent.filter((m) => m.subject.includes('ready'));
     expect(sent.map((m) => m.to).sort()).toEqual(['sarah@x.com', 'tom@x.com']);
     expect(sent[0]!.text).toContain(`/p/${pid}/gallery`);
+  });
+
+  it('a storage failure in the delete job leaves the publish done; the job retries and drafts then go', async () => {
+    const { storage, db, handlers, drain, publish, f1, f2, clientPhotos } = await boot();
+    const del = storage.delete; let down = true;
+    storage.delete = async (k) => { if (down) throw new Error('r2 down'); await del(k); };
+    expect((await publish([f1, f2])).status).toBe(200); await drain(); // the delete job fails once and is backed off
+    expect((await clientPhotos()).length).toBe(2);
+    expect(storage.keys().some((k) => k.endsWith(`/${f1}/draft`))).toBe(true);
+    down = false; expect(await runOnce(db, handlers, Date.now() + 120_000)).toBe('ran');
+    expect(storage.keys().some((k) => k.endsWith('/draft') || k.endsWith('.draft'))).toBe(false);
   });
 });

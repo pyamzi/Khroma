@@ -9,6 +9,7 @@ import { makeEmailHandlers } from './email/send.js';
 import { smtpTransport } from './email/transport.js';
 import { sweepUnconfirmedStudios } from './auth/signup.js';
 import { makeSignInHandlers } from './auth/signin.js';
+import { makeDeliveryHandlers } from './domain/delivery.js';
 import { sweepStaleUploads } from './domain/library.js';
 
 async function main() {
@@ -17,7 +18,7 @@ async function main() {
   if (!config.smtpUrl) console.warn('[boot] SMTP_URL not set: emails stay queued until it is');
   const transport = config.smtpUrl ? smtpTransport(config.smtpUrl, config.emailFrom) : null;
   const auth = createAuth({ root: db, config, getTransport: () => transport });
-  const light = { ...makeEmailHandlers(() => transport, new URL(config.baseUrl).hostname), ...makeSignInHandlers(auth, config) };
+  const light = { ...makeEmailHandlers(() => transport, new URL(config.baseUrl).hostname), ...makeSignInHandlers(auth, config), ...makeDeliveryHandlers(storage) };
   // Remote: heavy jobs run on the Fly worker machine, which this machine starts when they are pending. Local: this machine runs everything.
   // Either way it claims exactly the kinds it has handlers for.
   const remote = config.processing.mode === 'remote' ? makeWaker(config.processing) : null;

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { eq, and, lt } from 'drizzle-orm';
 import type { AppEnv } from '../session.js';
@@ -7,6 +8,9 @@ import type { Db } from '../../db/client.js';
 import { ProjectMeta } from '../../domain/meta.js';
 import { summary } from '../../domain/selection.js';
 import { commentCounts } from '../../domain/comments.js';
+
+/** Changes whenever the live rendition changes (a replacement's checksum lands at upload, so publishing also moves `readyAt`), so cached preview URLs never go stale. */
+const previewVersion = (r: { checksum: string; readyAt: string | null }) => createHash('sha1').update(`${r.checksum}|${r.readyAt ?? ''}`).digest('hex').slice(0, 12);
 
 export const summaryOf = (p: ProjectRow) => ({
   id: p.id, clientId: p.clientId, title: ProjectMeta.parse(p.metadataJson).title, date: p.date,
@@ -46,7 +50,7 @@ export const projectRoutes = () => new Hono<AppEnv>()
     return c.json(rows.map((r) => {
       const k = pickBy.get(r.id);
       return {
-        id: r.id, relPath: r.relPath, stage: r.stage, kind: r.kind, width: r.width, height: r.height, section: r.section, hasDraft: !!r.draftRelPath, previewReady: r.width !== null,
+        id: r.id, relPath: r.relPath, stage: r.stage, kind: r.kind, width: r.width, height: r.height, section: r.section, hasDraft: !!r.draftRelPath, previewReady: r.width !== null, v: previewVersion(r),
         pick: k ? { state: k.state, byEmail: k.byEmail, locked: k.round < p.currentRound } : null, comments: cc[r.id] ?? { open: 0, total: 0 },
       };
     }));

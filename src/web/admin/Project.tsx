@@ -84,7 +84,7 @@ export function Project({ id, me }: { id: string; me: Me }) {
             {photos.map((x, i) => (
               <div key={x.id} draggable={stage === 'final'} onDragStart={() => setDrag(x.id)} onDragOver={(e) => e.preventDefault()} onDrop={() => { if (drag) void reorder(drag, x.id); setDrag(null); }}
                 className={`relative aspect-square bg-neutral-200 dark:bg-neutral-800 ${x.pick?.state === 'pending' ? 'ring-2 ring-inset ring-amber-400' : ''}`} data-testid="admin-tile">
-                <button onClick={() => setOpen(i)} className="absolute inset-0" aria-label="Open photo">{x.previewReady && <img src={`/api/photos/${x.id}/preview?size=thumb`} loading="lazy" className="h-full w-full object-cover" alt="" />}</button>
+                <button onClick={() => setOpen(i)} className="absolute inset-0" aria-label="Open photo">{x.previewReady && <img src={`/api/photos/${x.id}/preview?size=thumb&v=${x.v}`} loading="lazy" className="h-full w-full object-cover" alt="" />}</button>
                 {x.hasDraft && <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-xs text-white">Draft</span>}
                 {!x.previewReady && <span className="absolute inset-x-1 top-1 rounded bg-red-600/80 px-1 text-center text-xs text-white">No preview</span>}
                 {x.comments.total > 0 && <span className="absolute left-1 bottom-1 rounded-full bg-black/60 px-1.5 text-xs text-white">{x.comments.open ? `${x.comments.open} open` : x.comments.total}</span>}

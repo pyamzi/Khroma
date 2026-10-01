@@ -73,7 +73,7 @@ export function Viewer({ photos, index, me, commentsOn, onIndex, onClose, onTogg
         onMouseDown={(e) => start(e.clientX, e.clientY, true)} onMouseMove={(e) => { if (e.buttons === 1) move(e.clientX, e.clientY); }} onMouseUp={(e) => end(e.clientX, e.clientY)}>
         <div ref={img} className="relative max-h-full max-w-full">
           {photo.kind === 'photo' && photo.previewReady
-            ? <img src={`/api/photos/${photo.id}/preview`} draggable={false} className="max-h-[calc(100vh-11rem)] max-w-full object-contain" alt="" />
+            ? <img src={`/api/photos/${photo.id}/preview?v=${photo.v}`} draggable={false} className="max-h-[calc(100vh-11rem)] max-w-full object-contain" alt="" />
             : <div className="flex h-64 w-64 items-center justify-center rounded bg-neutral-800 text-neutral-400">{photo.kind === 'video' ? 'Video' : 'Preview not ready'}</div>}
           {commentsOn && comments.map((c, i) => c.x !== null && c.y !== null && (
             <button key={c.id} onClick={(e) => { e.stopPropagation(); setThread(c); }} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}
