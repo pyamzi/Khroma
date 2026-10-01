@@ -74,6 +74,8 @@ describe('library domain', () => {
     expect(await db.select().from(jobs).where(eq(jobs.kind, 'process_upload'))).toHaveLength(1);
     await process(up.photoId); expect((await row(up.photoId))!.status).toBe('ready');
     await completeUpload(db, up.photoId);
+    expect((await row(up.photoId))!.status).toBe('ready');
+    expect(await db.select().from(jobs).where(eq(jobs.kind, 'process_upload'))).toHaveLength(1);
     const bad = await upload('b.jpg', null); await process(bad.photoId);
     expect(await err(completeUpload(db, bad.photoId))).toBe('not_found');
     expect(await err(completeUpload(db, 'nope'))).toBe('not_found');
@@ -114,21 +116,40 @@ describe('library domain', () => {
     expect(await err(deleteLibraryPhoto(db, storage, up.photoId))).toBe('not_found');
   });
 
-  it('the sweep fails uploads stuck in processing for over an hour: objects deleted, upload_failed event', async () => {
+  it('a retry after the HEIC original was already replaced by its JPEG finishes instead of failing', async () => {
+    const { storage, studioId, process, upload, row } = await seed();
+    const jpeg = await jpegBytes(300, 200); // the state a first attempt leaves when it converted, wrote original, then a size put threw
+    const up = await upload('IMG_1.heic', jpeg);
+    await process(up.photoId);
+    expect(await row(up.photoId)).toMatchObject({ status: 'ready', width: 300, checksum: sha256(jpeg) });
+    expect(await storage.getBytes(photoKey(studioId, up.photoId, 'original'))).toEqual(new Uint8Array(jpeg));
+  });
+
+  it('the sweep fails processing rows older than an hour only when their job is dead or missing', async () => {
     const root = await testDb(); const { studioId } = await makeStudio(root); const storage = memoryStorage(); const now = Date.now();
+    const hourAgo = new Date(now - 61 * 60_000).toISOString();
     const ids = await withStudio(root, studioId, async (tx) => {
-      const old = await startUpload(tx, storage, { name: 'old.jpg', size: 10 }); const fresh = await startUpload(tx, storage, { name: 'fresh.jpg', size: 10 });
-      for (const u of [old, fresh]) { await storage.put(photoKey(studioId, u.photoId, 'original'), await jpegBytes(), 'image/jpeg'); await completeUpload(tx, u.photoId); }
-      await storage.put(photoKey(studioId, old.photoId, 'thumb'), await jpegBytes(), 'image/jpeg');
-      await tx.update(photos).set({ createdAt: new Date(now - 61 * 60_000).toISOString() }).where(eq(photos.id, old.photoId));
-      return { old: old.photoId, fresh: fresh.photoId };
+      const ids: Record<string, string> = {};
+      for (const n of ['pending', 'failed', 'review', 'nojob', 'fresh']) {
+        const u = await startUpload(tx, storage, { name: `${n}.jpg`, size: 10 }); ids[n] = u.photoId;
+        await storage.put(photoKey(studioId, u.photoId, 'original'), await jpegBytes(), 'image/jpeg'); await completeUpload(tx, u.photoId);
+        if (n !== 'fresh') await tx.update(photos).set({ createdAt: hourAgo }).where(eq(photos.id, u.photoId));
+      }
+      await storage.put(photoKey(studioId, ids.failed!, 'thumb'), await jpegBytes(), 'image/jpeg');
+      await tx.update(jobs).set({ state: 'failed' }).where(eq(jobs.idempotencyKey, `process:${ids.failed}`));
+      await tx.update(jobs).set({ state: 'needs_review' }).where(eq(jobs.idempotencyKey, `process:${ids.review}`));
+      await tx.update(jobs).set({ state: 'running' }).where(eq(jobs.idempotencyKey, `process:${ids.pending}`)); // running counts as alive too
+      for (const n of ['nojob', 'fresh']) await tx.delete(jobs).where(eq(jobs.idempotencyKey, `process:${ids[n]}`));
+      return ids;
     });
-    expect(await sweepStaleUploads(root, storage, now)).toBe(1);
+    expect(await sweepStaleUploads(root, storage, now)).toBe(3);
     const [rows, evs] = await withStudio(root, studioId, async (tx) => [await tx.select().from(photos), await tx.select().from(events).where(eq(events.type, 'upload_failed'))] as const);
-    expect(rows.find((r) => r.id === ids.old)!.status).toBe('failed');
-    expect(rows.find((r) => r.id === ids.fresh)!.status).toBe('processing');
-    expect(storage.keys().filter((k) => k.includes(`/p/${ids.old}/`))).toEqual([]);
-    expect(storage.keys()).toContain(photoKey(studioId, ids.fresh, 'original'));
-    expect(evs).toMatchObject([{ projectId: null, studioId, payload: { photoId: ids.old, reason: 'processing timed out' } }]);
+    const st = (n: string) => rows.find((r) => r.id === ids[n])!.status;
+    expect({ pending: st('pending'), failed: st('failed'), review: st('review'), nojob: st('nojob'), fresh: st('fresh') })
+      .toEqual({ pending: 'processing', failed: 'failed', review: 'failed', nojob: 'failed', fresh: 'processing' });
+    for (const n of ['failed', 'review', 'nojob']) expect(storage.keys().filter((k) => k.includes(`/p/${ids[n]}/`)), n).toEqual([]);
+    for (const n of ['pending', 'fresh']) expect(storage.keys(), n).toContain(photoKey(studioId, ids[n]!, 'original'));
+    expect(evs.map((e) => (e.payload as { photoId: string }).photoId).sort()).toEqual([ids.failed, ids.review, ids.nojob].sort());
+    expect(evs[0]).toMatchObject({ projectId: null, studioId, payload: { reason: 'processing timed out' } });
   });
 });

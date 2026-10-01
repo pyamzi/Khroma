@@ -32,12 +32,15 @@ export async function startUpload(db: Db, storage: Storage, o: { name: string; s
   return { photoId, uploadUrl, contentType };
 }
 
-/** The browser finished its PUT. Repeats are no-ops; one job per photo. */
+/** The browser finished its PUT. Repeats are no-ops; one job per photo. Only `uploading` moves, so a stalled duplicate never reopens a finished photo. */
 export async function completeUpload(db: Db, photoId: string): Promise<void> {
-  const [p] = await db.select({ status: photos.status }).from(photos).where(and(eq(photos.id, photoId), isNull(photos.projectId))).limit(1);
-  if (p?.status === 'processing' || p?.status === 'ready') return;
-  if (p?.status !== 'uploading') throw new LibraryError('not_found');
-  await db.update(photos).set({ status: 'processing' }).where(eq(photos.id, photoId));
+  const mine = and(eq(photos.id, photoId), isNull(photos.projectId));
+  const [moved] = await db.update(photos).set({ status: 'processing' }).where(and(mine, eq(photos.status, 'uploading'))).returning({ id: photos.id });
+  if (!moved) {
+    const [p] = await db.select({ status: photos.status }).from(photos).where(mine).limit(1);
+    if (p?.status === 'processing' || p?.status === 'ready') return;
+    throw new LibraryError('not_found');
+  }
   await enqueue(db, { kind: 'process_upload', payload: { photoId }, idempotencyKey: `process:${photoId}` });
 }
 
@@ -60,7 +63,9 @@ export function makeLibraryHandlers(storage: Storage): Handlers {
       let bytes: Uint8Array = new Uint8Array(await new Response(obj.body).arrayBuffer());
       let out: { sizes: Awaited<ReturnType<typeof renderSizes>>; meta: Awaited<ReturnType<typeof readMetadata>> }; let heic = false;
       try {
-        const sn = sniffBytes(bytes, basename(p.relPath));
+        const name = basename(p.relPath);
+        // a retry after an earlier attempt already replaced the HEIC original with its JPEG: continue from the JPEG
+        const sn = sniffBytes(bytes, name) ?? (extname(name).toLowerCase() === '.heic' ? sniffBytes(bytes, 'converted.jpg') : null);
         if (!sn || sn.kind !== 'photo') throw new Error('unsupported or mismatched file');
         if (sn.format === 'heic') { bytes = await heicToJpeg(bytes); heic = true; }
         // renderSizes decodes leniently (RAW previews); a half-uploaded file must fail here instead
@@ -106,14 +111,16 @@ export async function deleteLibraryPhoto(db: Db, storage: Storage, photoId: stri
 }
 
 /**
- * Hourly, across Studios. Uploads never completed within an hour are deleted; uploads still processing after an hour
- * (their job ran out of retries) end failed with an upload_failed event. Rows first, then objects (best effort).
+ * Hourly, across Studios. Uploads never completed within an hour are deleted. Uploads processing for over an hour whose
+ * `process:<id>` job is dead (failed, needs_review) or missing end failed with an upload_failed event; a pending or
+ * running job keeps its photo, however old (a big batch can queue for hours). Rows first, then objects (best effort).
  */
 export async function sweepStaleUploads(root: Db, storage: Storage, now: number): Promise<number> {
   const old = lt(photos.createdAt, new Date(now - STALE_UPLOAD_MS).toISOString());
+  const jobDead = sql`not exists (select 1 from jobs where jobs.studio_id = photos.studio_id and jobs.idempotency_key = 'process:' || photos.id and jobs.state in ('pending', 'running'))`;
   const [gone, stuck] = await asSystem(root, async (tx) => {
     const gone = await tx.delete(photos).where(and(eq(photos.status, 'uploading'), old)).returning({ id: photos.id, studioId: photos.studioId });
-    const stuck = await tx.update(photos).set({ status: 'failed' }).where(and(eq(photos.status, 'processing'), old)).returning({ id: photos.id, studioId: photos.studioId });
+    const stuck = await tx.update(photos).set({ status: 'failed' }).where(and(eq(photos.status, 'processing'), old, jobDead)).returning({ id: photos.id, studioId: photos.studioId });
     for (const s of stuck) await tx.insert(events).values({ studioId: s.studioId, projectId: null, actor: 'system', type: 'upload_failed', payload: { photoId: s.id, reason: 'processing timed out' } });
     return [gone, stuck];
   });
