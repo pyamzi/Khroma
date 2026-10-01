@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import { loadConfig } from '../../src/server/config.js';
 import { createAuth } from '../../src/server/auth/better.js';
@@ -21,8 +22,10 @@ describe('Better Auth instance', () => {
     const m = mail.sent.at(-1)!; const link = m.text.match(VERIFY)!;
     expect(m).toMatchObject({ to: 'a@x.com', fromName: 'Test Studio', replyTo: 'owner@x.com', subject: 'Sign in to Test Studio' });
     expect(m.messageId).toMatch(/^<magic:[\w-]+@localhost>$/);
-    const [v] = await root.select().from(authVerifications);
-    expect(v!.value).not.toContain(link[1]);
+    const rows = await root.select().from(authVerifications);
+    expect(rows).toHaveLength(1);
+    expect(JSON.stringify(rows)).not.toContain(link[1]!); // the raw token is in no column
+    expect(rows[0]!.identifier).toBe(`magic-link:${createHash('sha256').update(link[1]!).digest('base64url')}`); // Better Auth's SHA-256 base64url hasher
   });
 
   it('a direct POST to Better Auth sign-in is not reachable', async () => {
