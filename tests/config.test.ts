@@ -24,4 +24,8 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...prod, SMTP_URL: undefined })).toThrow(/SMTP_URL/);
     expect(() => loadConfig({ ...prod, DATABASE_URL: 'pglite://memory' })).toThrow(/pglite/i);
   });
+  it('RESEND_API_KEY alone is enough for email (pasted key may carry whitespace)', () => {
+    const c = loadConfig({ ...prod, SMTP_URL: undefined, RESEND_API_KEY: ' re_abc_123\n' });
+    expect(c.smtpUrl).toBe('smtp://resend:re_abc_123@smtp.resend.com:587');
+  });
 });

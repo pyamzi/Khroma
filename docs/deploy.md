@@ -16,7 +16,7 @@ These need your accounts. Nothing here is automated.
 
 ```bash
 fly launch --no-deploy --copy-config --name opengallery
-fly secrets set DATABASE_URL='postgres://…-pooler…/neondb?sslmode=require' SMTP_URL='smtp://…' EMAIL_FROM='no-reply@…' R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_BUCKET=opengallery-media BASE_URL=https://opengallery.fly.dev
+fly secrets set DATABASE_URL='postgres://…-pooler…/neondb?sslmode=require' RESEND_API_KEY='re_…' EMAIL_FROM='no-reply@…' R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_BUCKET=opengallery-media BASE_URL=https://opengallery.fly.dev
 fly deploy
 DATABASE_URL='postgres://…' npm run check:tenancy
 curl -fsS https://opengallery.fly.dev/healthz
