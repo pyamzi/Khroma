@@ -32,6 +32,13 @@ describe('photos', () => {
     expect([row!.width, row!.height, row!.live, row!.checksum.length]).toEqual([2048, 1365, true, 64]);
     expect((await db.select().from(projects))[0]!.productionState).toBe('culling');
   });
+  it('addPhoto keeps culling RAWs out of the Library', async () => {
+    const { db, storage } = await seed();
+    const culling = await addPhoto(db, storage, { projectId: 'p1', relPath: 'raw/a.jpg', stage: 'culling', bytes: await jpegBytes(300, 200), name: 'a.jpg' });
+    const final = await addPhoto(db, storage, { projectId: 'p1', relPath: 'finals/a.jpg', stage: 'final', bytes: await jpegBytes(300, 200), name: 'a.jpg' });
+    const inLib = async (id: string) => (await db.select().from(photos).where(eq(photos.id, id)))[0]!.inLibrary;
+    expect([await inLib(culling.photoId), await inLib(final.photoId)]).toEqual([false, true]);
+  });
   it('refuses unsupported bytes', async () => {
     const { db, storage } = await seed();
     await expect(addPhoto(db, storage, { projectId: 'p1', relPath: 'raw/a.txt', stage: 'culling', bytes: Buffer.from('hello'), name: 'a.txt' })).rejects.toBeInstanceOf(PhotoError);

@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { clients, projects } from '../../src/server/db/schema.js';
+import { clients, projects, photos } from '../../src/server/db/schema.js';
 import type { Db } from '../../src/server/db/client.js';
 import { canAccessProject, listProjectsFor } from '../../src/server/http/access.js';
 import type { Viewer } from '../../src/server/http/session.js';
 import { studioTestDb } from '../helpers.js';
+import { withStudio } from '../../src/server/db/tenancy.js';
+import { photoKey } from '../../src/server/storage.js';
+import { jpegBytes } from '../fixtures/make.js';
+import { boot } from './boot.js';
 
 async function fresh() {
   const { db, studioId } = await studioTestDb({ ownerEmail: 'owner@x' });
@@ -48,5 +52,21 @@ describe('canAccessProject', () => {
     expect(await listProjectsFor(db, owner)).toHaveLength(3);
     expect((await listProjectsFor(db, guest)).map((p) => p.id)).toEqual(['p1']);
     expect(await listProjectsFor(db, null)).toEqual([]);
+  });
+});
+
+describe('Library photos', () => {
+  it('a Library photo is reachable by its Studio admin only', async () => {
+    const b = await boot();
+    const A = await b.signupOwner('a-owner@x.com', 'Alpha'); const B = await b.signupOwner('b-owner@x.com', 'Beta');
+    await b.seedProject(A.cookie, { emails: ['a-client@x.com'] });
+    const client = await b.signIn('a-client@x.com', 'Alpha');
+    await withStudio(b.db, A.studioId, (tx) => tx.insert(photos).values({ id: 'lib1', studioId: A.studioId, projectId: null, relPath: 'library/lib1/a.jpg', stage: 'final', kind: 'photo', checksum: '' }));
+    await b.storage.put(photoKey(A.studioId, 'lib1', 'preview'), await jpegBytes(40, 30), 'image/jpeg');
+    const get = (cookie: string) => b.api('/api/photos/lib1/preview', { cookie });
+    expect((await get(A.cookie)).status).toBe(200);
+    expect((await get(client)).status).toBe(404);
+    expect((await get(B.cookie)).status).toBe(404);
+    expect((await b.api('/api/photos/lib1/preview')).status).toBe(404);
   });
 });

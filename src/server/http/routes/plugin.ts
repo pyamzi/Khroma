@@ -47,14 +47,14 @@ export const pluginRoutes = () => new Hono<AppEnv>()
   })
   .delete('/api/plugin/finals/:photoId', requireScope('write'), async (c) => {
     const db = c.get('db'); const [ph] = await db.select({ projectId: photos.projectId }).from(photos).where(eq(photos.id, c.req.param('photoId'))).limit(1);
-    if (!ph || !(await listProjectsFor(db, c.get('session'))).some((p) => p.id === ph.projectId)) return c.json({ error: 'not_found' }, 404);
+    if (!ph?.projectId || !(await listProjectsFor(db, c.get('session'))).some((p) => p.id === ph.projectId)) return c.json({ error: 'not_found' }, 404);
     try { await deleteFinal(db, c.get('storage'), { projectId: ph.projectId, photoId: c.req.param('photoId'), actor: c.get('session')!.subject }); return c.json({ ok: true }); } catch (e) { return failPlugin(c, e); }
   })
   .get('/api/plugin/projects/:id/picks', loadProject(), async (c) => c.json(await pluginPicks(c.get('db'), c.get('project').id)))
   .get('/api/plugin/projects/:id/comments', loadProject(), async (c) => c.json(await pluginComments(c.get('db'), c.get('project').id, c.req.query('since') || undefined)))
   .post('/api/plugin/photos/:photoId/comments', requireScope('write'), async (c) => {
     const db = c.get('db'); const [ph] = await db.select({ projectId: photos.projectId }).from(photos).where(eq(photos.id, c.req.param('photoId'))).limit(1);
-    if (!ph || !(await listProjectsFor(db, c.get('session'))).some((p) => p.id === ph.projectId)) return c.json({ error: 'not_found' }, 404);
+    if (!ph?.projectId || !(await listProjectsFor(db, c.get('session'))).some((p) => p.id === ph.projectId)) return c.json({ error: 'not_found' }, 404);
     const b = z.object({ text: z.string().min(1).max(2000) }).safeParse(await c.req.json().catch(() => null)); if (!b.success) return c.json({ error: 'invalid body' }, 400);
     try { return c.json(await replyFromPlugin(db, { photoId: c.req.param('photoId'), author: c.get('session')!.subject, text: b.data.text }), 201); } catch (e) { return failPlugin(c, e); }
   })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { invoices, projects, clients, jobs, authUsers } from '../src/server/db/schema.js';
+import { invoices, projects, clients, jobs, authUsers, photos } from '../src/server/db/schema.js';
 import { getSetting, setSetting } from '../src/server/db/settings.js';
 import { withStudio, asSystem } from '../src/server/db/tenancy.js';
 import { join } from 'node:path';
@@ -9,10 +9,17 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { openDb, migrationsFolder } from '../src/server/db/client.js';
 import { checkTenancy } from '../src/server/db/check.js';
-import { testDb, makeStudio, pgFail, tmpDir } from './helpers.js';
+import { testDb, makeStudio, studioTestDb, pgFail, tmpDir } from './helpers.js';
 import { pgCode } from '../src/server/db/errors.js';
 
 describe('database', () => {
+  it('a Library photo needs no project and defaults to in_library ready', async () => {
+    const { db } = await studioTestDb();
+    await db.insert(photos).values({ id: 'p1', projectId: null, relPath: 'library/p1/a.jpg', stage: 'final', kind: 'photo', checksum: '' });
+    const [r] = await db.select().from(photos);
+    expect(r).toMatchObject({ projectId: null, inLibrary: true, status: 'ready', keywords: [], caption: null, readyAt: null, purgedAt: null });
+    expect(r!.createdAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+  });
   it('allows only one unpaid extras invoice per project', async () => {
     const db = await testDb(); const { studioId } = await makeStudio(db);
     await withStudio(db, studioId, async (tx) => {
@@ -62,8 +69,10 @@ describe('database', () => {
   it('migration 0003 retires H1 people sessions and keeps plugin tokens', async () => {
     const before = await tmpDir(); await cp(migrationsFolder, before, { recursive: true }); // the schema as H1 left it
     const journal = JSON.parse(await readFile(join(before, 'meta/_journal.json'), 'utf8')) as { entries: { tag: string }[] };
-    const last = journal.entries.pop()!; expect(last.tag).toBe('0003_retire_h1_sessions');
-    await writeFile(join(before, 'meta/_journal.json'), JSON.stringify(journal)); await rm(join(before, `${last.tag}.sql`));
+    for (const tag of ['0004_library', '0003_retire_h1_sessions']) { // roll the copy back to before 0003
+      expect(journal.entries.pop()!.tag).toBe(tag); await rm(join(before, `${tag}.sql`));
+    }
+    await writeFile(join(before, 'meta/_journal.json'), JSON.stringify(journal));
     const pg = new PGlite(); const db = drizzle(pg);
     try {
       await migrate(db, { migrationsFolder: before });
@@ -73,6 +82,23 @@ describe('database', () => {
       await migrate(db, { migrationsFolder });
       expect((await pg.query<{ id: string; kind: string }>('select id, kind from sessions')).rows).toEqual([{ id: 'p', kind: 'plugin' }]);
       expect((await pg.query(`select 1 from information_schema.columns where table_name = 'sessions' and column_name in ('login_token_hash', 'redeemed_at')`)).rows).toEqual([]);
+    } finally { await pg.close(); }
+  });
+  it('migration 0004 takes culling RAWs out of the Library and leaves finals in', async () => {
+    const before = await tmpDir(); await cp(migrationsFolder, before, { recursive: true });
+    const journal = JSON.parse(await readFile(join(before, 'meta/_journal.json'), 'utf8')) as { entries: { tag: string }[] };
+    const last = journal.entries.pop()!; expect(last.tag).toBe('0004_library');
+    await writeFile(join(before, 'meta/_journal.json'), JSON.stringify(journal)); await rm(join(before, `${last.tag}.sql`));
+    const pg = new PGlite(); const db = drizzle(pg);
+    try {
+      await migrate(db, { migrationsFolder: before });
+      await pg.exec(`insert into studios (id, name) values ('s', 'S');
+        insert into clients (id, studio_id, name, emails) values ('c', 's', 'C', '[]');
+        insert into projects (id, studio_id, client_id, metadata_json) values ('p', 's', 'c', '{}');
+        insert into photos (id, studio_id, project_id, rel_path, stage, kind, checksum) values
+          ('raw', 's', 'p', 'raw/a.dng', 'culling', 'photo', ''), ('fin', 's', 'p', 'finals/a.jpg', 'final', 'photo', '');`);
+      await migrate(db, { migrationsFolder });
+      expect((await pg.query<{ id: string; in_library: boolean }>('select id, in_library from photos order by id')).rows).toEqual([{ id: 'fin', in_library: true }, { id: 'raw', in_library: false }]);
     } finally { await pg.close(); }
   });
 });

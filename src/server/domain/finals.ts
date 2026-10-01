@@ -40,7 +40,7 @@ export async function uploadFinal(db: Db, storage: Storage, o: { projectId: stri
     await db.update(photos).set({ draftRelPath: draftPath, checksum, sourcePhotoId: source?.id ?? existing.sourcePhotoId }).where(eq(photos.id, existing.id));
   } else {
     photoId = newId();
-    await db.insert(photos).values({ id: photoId, projectId: o.projectId, relPath: livePath, draftRelPath: draftPath, live: false, stage: 'final', kind: 'photo', sourcePhotoId: source?.id ?? null, checksum });
+    await db.insert(photos).values({ id: photoId, projectId: o.projectId, relPath: livePath, draftRelPath: draftPath, live: false, inLibrary: false, stage: 'final', kind: 'photo', sourcePhotoId: source?.id ?? null, checksum });
   }
   await storage.put(photoKey(p.studioId, photoId, 'draft'), o.bytes, sn.format === 'png' ? 'image/png' : 'image/jpeg');
   await enqueue(db, { kind: 'preview', payload: { photoId }, idempotencyKey: `preview:${photoId}:${checksum}:d` });

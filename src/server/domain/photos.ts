@@ -19,7 +19,7 @@ export async function addPhoto(db: Db, storage: Storage, o: { projectId: string;
   const sn = sniffBytes(o.bytes, o.name);
   if (!sn || (sn.kind !== 'photo' && sn.kind !== 'video')) throw new PhotoError('unsupported');
   const p = await project(db, o.projectId); const photoId = newId(); const checksum = sha256(o.bytes);
-  await db.insert(photos).values({ id: photoId, projectId: o.projectId, relPath: o.relPath, stage: o.stage, kind: sn.kind, checksum, sourcePhotoId: o.sourcePhotoId ?? null });
+  await db.insert(photos).values({ id: photoId, projectId: o.projectId, relPath: o.relPath, stage: o.stage, inLibrary: o.stage !== 'culling', kind: sn.kind, checksum, sourcePhotoId: o.sourcePhotoId ?? null });
   await storage.put(photoKey(p.studioId, photoId, 'original'), o.bytes, contentType(o.name, sn.format));
   await enqueue(db, { kind: 'preview', payload: { photoId }, idempotencyKey: `preview:${photoId}:${checksum}` });
   if (o.stage === 'culling') await onCullingMediaAdded(db, o.projectId);

@@ -20,7 +20,7 @@ const unit = (n: unknown): n is number => typeof n === 'number' && Number.isFini
 /** Region (photos) or timestamp (videos), never both; text 1–2000 chars; clients need the per-stage toggle. */
 export async function addComment(db: Db, o: { photoId: string; author: string; isAdmin: boolean; input: CommentInput }): Promise<CommentRow> {
   const [ph] = await db.select().from(photos).where(eq(photos.id, o.photoId)).limit(1);
-  if (!ph) throw new CommentError('unknown_photo');
+  if (!ph || ph.projectId === null) throw new CommentError('unknown_photo'); // Library photos carry no comment threads
   if (!o.isAdmin && !(await commentsAllowed(db, ph.projectId, ph.stage))) throw new CommentError('disabled');
   const text = (o.input.text ?? '').trim();
   if (text.length < 1 || text.length > 2000) throw new CommentError('invalid');

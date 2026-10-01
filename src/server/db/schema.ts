@@ -55,7 +55,7 @@ export const projects = pgTable('projects', {
 export const photos = pgTable('photos', {
   id: text('id').primaryKey(),
   studioId: studioId(),
-  projectId: text('project_id').notNull(),
+  projectId: text('project_id'), // null for a Library photo that belongs to no project; the composite FK is skipped then (MATCH SIMPLE)
   relPath: text('rel_path').notNull(), // logical path within the project, e.g. raw/a.dng, finals/a.jpg
   draftRelPath: text('draft_rel_path'),
   live: boolean('live').notNull().default(true), // the live object exists and is what clients see
@@ -69,7 +69,14 @@ export const photos = pgTable('photos', {
   sortOrder: integer('sort_order').notNull().default(0),
   section: text('section'),
   editState: text('edit_state', { enum: ['none', 'editing', 'done'] }).notNull().default('none'),
-}, (t) => [uniqueIndex('photos_project_path').on(t.projectId, t.relPath), unique('photos_studio_id').on(t.studioId, t.id), foreignKey({ columns: [t.studioId, t.projectId], foreignColumns: [projects.studioId, projects.id] })]);
+  inLibrary: boolean('in_library').notNull().default(true),
+  status: text('status', { enum: ['uploading', 'processing', 'ready', 'failed'] }).notNull().default('ready'),
+  keywords: jsonb('keywords').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  caption: text('caption'),
+  createdAt: text('created_at').notNull().default(now()),
+  readyAt: text('ready_at'),
+  purgedAt: text('purged_at'),
+}, (t) => [index('photos_studio_library').on(t.studioId, t.inLibrary, t.createdAt), uniqueIndex('photos_project_path').on(t.projectId, t.relPath), unique('photos_studio_id').on(t.studioId, t.id), foreignKey({ columns: [t.studioId, t.projectId], foreignColumns: [projects.studioId, projects.id] })]);
 
 export const picks = pgTable('picks', {
   studioId: studioId(),

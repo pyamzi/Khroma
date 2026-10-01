@@ -42,6 +42,11 @@ describe('finals domain', () => {
     await expect(uploadFinal(db, storage, { projectId: pid, name: 'x.jpg', bytes: Buffer.from('not a jpeg'), uploadId: 'u6', actor: 'p' })).rejects.toMatchObject({ code: 'unsupported' });
     await expect(uploadFinal(db, storage, { projectId: pid, name: 'x.jpg', bytes: await jpeg(), sourcePhotoId: 'nope', uploadId: 'u7', actor: 'p' })).rejects.toMatchObject({ code: 'not_found' });
   });
+  it('a freshly uploaded final draft is not in the Library', async () => {
+    const { db, storage } = await seed();
+    const r = await uploadFinal(db, storage, { projectId: pid, name: 'f.jpg', bytes: await jpeg(), uploadId: 'u1', actor: 'p' });
+    expect((await db.select().from(photos).where(eq(photos.id, r.photoId)))[0]!.inLibrary).toBe(false);
+  });
   it('deletes a draft and its objects but refuses a live final', async () => {
     const { db, storage, studioId, a } = await seed();
     const r = await uploadFinal(db, storage, { projectId: pid, name: 'f.jpg', bytes: await jpeg(), sourcePhotoId: a.id, uploadId: 'u1', actor: 'p' });

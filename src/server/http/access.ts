@@ -52,7 +52,7 @@ export function requireKind(...kinds: Viewer['kind'][]): MiddlewareHandler<AppEn
 }
 
 type WithProject = AppEnv & { Variables: { project: ProjectRow } };
-type WithPhoto = WithProject & { Variables: { photo: PhotoRow } };
+type WithPhoto = AppEnv & { Variables: { project: ProjectRow | null; photo: PhotoRow } };
 
 /** Forbidden and missing both answer 404 so existence is never leaked. */
 export function loadProject(): MiddlewareHandler<WithProject> {
@@ -65,8 +65,15 @@ export function loadProject(): MiddlewareHandler<WithProject> {
 export function loadPhoto(): MiddlewareHandler<WithPhoto> {
   return async (c, next) => {
     const db = c.get('db'); const [ph] = await db.select().from(photos).where(eq(photos.id, c.req.param('photoId') ?? '')).limit(1);
-    const [p] = ph ? await db.select().from(projects).where(eq(projects.id, ph.projectId)).limit(1) : [];
-    if (!ph || !p || (await canAccessProject(db, c.get('session'), p)) !== 'ok') return c.json({ error: 'not found' }, 404);
+    if (!ph) return c.json({ error: 'not found' }, 404);
+    let p: ProjectRow | null = null;
+    if (ph.projectId === null) { // a Library photo belongs to its Studio: only that Studio's admin reaches it
+      const s = c.get('session');
+      if (!s || s.kind !== 'admin' || s.studioId !== ph.studioId || !(await isAdmin(db, s))) return c.json({ error: 'not found' }, 404);
+    } else {
+      [p = null] = await db.select().from(projects).where(eq(projects.id, ph.projectId)).limit(1);
+      if (!p || (await canAccessProject(db, c.get('session'), p)) !== 'ok') return c.json({ error: 'not found' }, 404);
+    }
     c.set('project', p); c.set('photo', ph); await next();
   };
 }
