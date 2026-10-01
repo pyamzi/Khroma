@@ -1,10 +1,12 @@
-import { and, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, inArray, isNull, eq, ne, sql } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { asSystem, withStudio } from '../db/tenancy.js';
 import { photos, projects } from '../db/schema.js';
 import { photoKey, type PhotoVariant, type Storage } from '../storage.js';
 
 export const CULLING_RETENTION_DAYS = 30;
+/** Photos per transaction: bounded so the 60 s idle-in-transaction limit holds and each chunk's progress commits. */
+const CHUNK = 40;
 const VARIANTS: PhotoVariant[] = ['original', 'preview', 'medium', 'thumb'];
 
 /** Unpurged culling photos of projects whose latest finished_culling is older than the cutoff and that have no round open again. Scoped by RLS inside withStudio. */
@@ -16,7 +18,8 @@ function candidates(tx: Db, cutoff: string) {
 
 /**
  * Deletes the preview objects of culling photos 30 days after the Client finished picking, and sets purgedAt.
- * Rows, picks, comments and source links stay. Objects go first in the same transaction: a failed delete throws and the next run retries.
+ * Rows, picks, comments and source links stay. Works in committed chunks per Studio; objects go first in each chunk's transaction,
+ * so a failed delete throws, keeps the earlier chunks, and the next run retries the rest.
  */
 export async function sweepCullingPreviews(root: Db, storage: Storage, now: Date): Promise<{ purged: number }> {
   const cutoff = new Date(now.getTime() - CULLING_RETENTION_DAYS * 864e5).toISOString();
@@ -24,14 +27,17 @@ export async function sweepCullingPreviews(root: Db, storage: Storage, now: Date
   let purged = 0; let failure: unknown;
   for (const studioId of studioIds) {
     try {
-      purged += await withStudio(root, studioId, async (tx) => {
-        const rows = await candidates(tx, cutoff);
-        for (const r of rows) for (const v of VARIANTS) await storage.delete(photoKey(studioId, r.id, v)); // missing keys are fine
-        for (const r of rows) await tx.update(photos).set({ purgedAt: now.toISOString() }).where(eq(photos.id, r.id));
-        return rows.length;
-      });
+      for (let n = CHUNK; n === CHUNK;) { // a short chunk means the backlog is done
+        n = await withStudio(root, studioId, async (tx) => {
+          const rows = await candidates(tx, cutoff).limit(CHUNK); // re-checked per chunk: a round reopened meanwhile is skipped
+          await Promise.all(rows.flatMap((r) => VARIANTS.map((v) => storage.delete(photoKey(studioId, r.id, v))))); // missing keys are fine
+          if (rows.length) await tx.update(photos).set({ purgedAt: now.toISOString() }).where(inArray(photos.id, rows.map((r) => r.id)));
+          return rows.length;
+        });
+        purged += n;
+      }
     } catch (e) { console.error('[sweep] culling purge', studioId, e); failure ??= e; } // one Studio's outage must not starve the rest
   }
-  if (failure) throw failure;
+  if (failure) { console.error(`[sweep] culling purge failed after purging ${purged}`); throw failure; }
   return { purged };
 }
