@@ -74,7 +74,7 @@ export function makeLibraryHandlers(storage: Storage): Handlers {
       await db.update(photos).set({
         status: 'ready', readyAt: new Date().toISOString(), width: out.sizes.width, height: out.sizes.height,
         capturedAt: out.meta.capturedAt, keywords: out.meta.keywords, caption: out.meta.caption, checksum: sha256(bytes),
-      }).where(eq(photos.id, p.id));
+      }).where(and(eq(photos.id, p.id), eq(photos.status, 'processing'))); // the sweep may have failed it meanwhile
     },
   };
 }
@@ -105,10 +105,18 @@ export async function deleteLibraryPhoto(db: Db, storage: Storage, photoId: stri
   for (const v of VARIANTS) await storage.delete(photoKey(p.studioId, p.id, v));
 }
 
-/** Uploads never completed within an hour, across Studios: rows first, then objects (best effort). */
+/**
+ * Hourly, across Studios. Uploads never completed within an hour are deleted; uploads still processing after an hour
+ * (their job ran out of retries) end failed with an upload_failed event. Rows first, then objects (best effort).
+ */
 export async function sweepStaleUploads(root: Db, storage: Storage, now: number): Promise<number> {
-  const cutoff = new Date(now - STALE_UPLOAD_MS).toISOString();
-  const gone = await asSystem(root, (tx) => tx.delete(photos).where(and(eq(photos.status, 'uploading'), lt(photos.createdAt, cutoff))).returning({ id: photos.id, studioId: photos.studioId }));
-  for (const g of gone) await storage.delete(photoKey(g.studioId, g.id, 'original')).catch((e) => console.error('[sweep] upload object', g.id, e));
-  return gone.length;
+  const old = lt(photos.createdAt, new Date(now - STALE_UPLOAD_MS).toISOString());
+  const [gone, stuck] = await asSystem(root, async (tx) => {
+    const gone = await tx.delete(photos).where(and(eq(photos.status, 'uploading'), old)).returning({ id: photos.id, studioId: photos.studioId });
+    const stuck = await tx.update(photos).set({ status: 'failed' }).where(and(eq(photos.status, 'processing'), old)).returning({ id: photos.id, studioId: photos.studioId });
+    for (const s of stuck) await tx.insert(events).values({ studioId: s.studioId, projectId: null, actor: 'system', type: 'upload_failed', payload: { photoId: s.id, reason: 'processing timed out' } });
+    return [gone, stuck];
+  });
+  for (const g of [...gone, ...stuck]) for (const v of VARIANTS) await storage.delete(photoKey(g.studioId, g.id, v)).catch((e) => console.error('[sweep] upload object', g.id, e));
+  return gone.length + stuck.length;
 }

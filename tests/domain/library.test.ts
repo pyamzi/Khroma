@@ -6,9 +6,10 @@ import { memoryStorage, photoKey } from '../../src/server/storage.js';
 import { defaultProjectMeta } from '../../src/server/domain/meta.js';
 import { addPhoto } from '../../src/server/domain/photos.js';
 import { sha256 } from '../../src/server/media/sniff.js';
-import { startUpload, completeUpload, makeLibraryHandlers, libraryPage, deleteLibraryPhoto, LibraryError, MAX_UPLOAD_BYTES } from '../../src/server/domain/library.js';
+import { startUpload, completeUpload, makeLibraryHandlers, libraryPage, deleteLibraryPhoto, sweepStaleUploads, LibraryError, MAX_UPLOAD_BYTES } from '../../src/server/domain/library.js';
 import { jpegBytes, tiffBytes } from '../fixtures/make.js';
-import { studioTestDb } from '../helpers.js';
+import { withStudio } from '../../src/server/db/tenancy.js';
+import { studioTestDb, testDb, makeStudio } from '../helpers.js';
 
 async function seed() {
   const s = await studioTestDb(); const storage = memoryStorage();
@@ -111,5 +112,23 @@ describe('library domain', () => {
     await deleteLibraryPhoto(db, storage, up.photoId);
     expect(await row(up.photoId)).toBeUndefined(); expect(keysOf(up.photoId)).toEqual([]);
     expect(await err(deleteLibraryPhoto(db, storage, up.photoId))).toBe('not_found');
+  });
+
+  it('the sweep fails uploads stuck in processing for over an hour: objects deleted, upload_failed event', async () => {
+    const root = await testDb(); const { studioId } = await makeStudio(root); const storage = memoryStorage(); const now = Date.now();
+    const ids = await withStudio(root, studioId, async (tx) => {
+      const old = await startUpload(tx, storage, { name: 'old.jpg', size: 10 }); const fresh = await startUpload(tx, storage, { name: 'fresh.jpg', size: 10 });
+      for (const u of [old, fresh]) { await storage.put(photoKey(studioId, u.photoId, 'original'), await jpegBytes(), 'image/jpeg'); await completeUpload(tx, u.photoId); }
+      await storage.put(photoKey(studioId, old.photoId, 'thumb'), await jpegBytes(), 'image/jpeg');
+      await tx.update(photos).set({ createdAt: new Date(now - 61 * 60_000).toISOString() }).where(eq(photos.id, old.photoId));
+      return { old: old.photoId, fresh: fresh.photoId };
+    });
+    expect(await sweepStaleUploads(root, storage, now)).toBe(1);
+    const [rows, evs] = await withStudio(root, studioId, async (tx) => [await tx.select().from(photos), await tx.select().from(events).where(eq(events.type, 'upload_failed'))] as const);
+    expect(rows.find((r) => r.id === ids.old)!.status).toBe('failed');
+    expect(rows.find((r) => r.id === ids.fresh)!.status).toBe('processing');
+    expect(storage.keys().filter((k) => k.includes(`/p/${ids.old}/`))).toEqual([]);
+    expect(storage.keys()).toContain(photoKey(studioId, ids.fresh, 'original'));
+    expect(evs).toMatchObject([{ projectId: null, studioId, payload: { photoId: ids.old, reason: 'processing timed out' } }]);
   });
 });
