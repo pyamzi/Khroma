@@ -1,11 +1,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../session.js';
-import { setSessionCookie, clearSessionCookie } from '../session.js';
 import { isAdmin } from '../access.js';
 import { asSystem } from '../../db/tenancy.js';
 import { studios } from '../../db/schema.js';
-import { redeemMagicLink, signOut } from '../../auth/magic.js';
 import { requestSignIn } from '../../auth/signin.js';
 import { signup } from '../../auth/signup.js';
 import type { Config } from '../../config.js';
@@ -60,15 +58,11 @@ export const systemRoutes = (config: Config, auth: Auth) => new Hono<AppEnv>()
     if (!v || !(await bindSession(c.get('root'), { sessionId: s.session.id, email: s.user.email.toLowerCase(), studioId: v.studioId, kind: v.kind, now }))) return expired();
     return c.redirect('/');
   })
-  .get('/auth/:token', async (c) => {
-    const r = await asSystem(c.get('root'), (tx) => redeemMagicLink(tx, c.req.param('token')));
-    if (!r) return c.redirect('/signin?error=expired');
-    setSessionCookie(c, r.sessionToken, config.secureCookies);
-    return c.redirect('/');
-  })
+  .get('/auth/:token', (c) => c.redirect('/signin?error=expired')) // H1 links: their sessions were retired with migration 0003
   .post('/api/auth/signout', async (c) => {
-    const t = c.get('sessionToken'); if (t) await asSystem(c.get('root'), (tx) => signOut(tx, t));
-    clearSessionCookie(c); return c.json({ ok: true });
+    const out = await auth.api.signOut({ headers: c.req.raw.headers, asResponse: true });
+    for (const v of out.headers.getSetCookie()) c.header('set-cookie', v, { append: true });
+    return c.json({ ok: true });
   });
 
 export const meRoutes = () => new Hono<AppEnv>()

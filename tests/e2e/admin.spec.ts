@@ -1,5 +1,5 @@
 import { test, expect } from 'playwright/test';
-import { startTestServer } from './server.js';
+import { startTestServer, linkIn } from './server.js';
 
 let srv: Awaited<ReturnType<typeof startTestServer>>;
 test.beforeAll(async () => { srv = await startTestServer(); });
@@ -14,7 +14,7 @@ test('a new photographer signs up and lands on their empty dashboard', async ({ 
   await page.getByRole('button', { name: 'Create studio' }).click();
   await expect(page.getByText('Check your email')).toBeVisible();
   await expect.poll(() => srv.mailbox().filter((m) => m.to === 'fresh@x.com').length).toBe(1);
-  await page.goto(srv.mailbox().find((m) => m.to === 'fresh@x.com')!.text.match(/https?:\/\/[^\s]+\/auth\/[A-Za-z0-9_-]+/)![0]);
+  await page.goto(linkIn(srv.mailbox().find((m) => m.to === 'fresh@x.com')!.text));
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
   await expect(page.getByText('Nothing waiting. Nice.')).toBeVisible();
   await page.getByRole('button', { name: /Board$/ }).first().click();

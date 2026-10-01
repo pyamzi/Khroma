@@ -2,21 +2,20 @@ import type { MiddlewareHandler } from 'hono';
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { clients, projects, photos, users } from '../db/schema.js';
-import type { SessionRow } from '../auth/magic.js';
-import type { AppEnv } from './session.js';
+import type { AppEnv, Viewer } from './session.js';
 
 export type ProjectRow = typeof projects.$inferSelect;
 export type PhotoRow = typeof photos.$inferSelect;
 export type Access = 'ok' | 'forbidden';
 
 /** `db` is the request transaction, so users are already the session's Studio. */
-export async function isAdmin(db: Db, s: SessionRow | null): Promise<boolean> {
+export async function isAdmin(db: Db, s: Viewer | null): Promise<boolean> {
   return !!s && s.kind === 'admin' && (await db.select({ id: users.id }).from(users).where(eq(users.email, s.subject)).limit(1)).length > 0;
 }
 const servable = (p: ProjectRow) => p.archivedAt === null;
 
 /** The one scoping rule. Every project-bound route goes through here; ownership is never read from the request. Row-level security is the backstop. */
-export async function canAccessProject(db: Db, s: SessionRow | null, p: ProjectRow): Promise<Access> {
+export async function canAccessProject(db: Db, s: Viewer | null, p: ProjectRow): Promise<Access> {
   if (!s || s.studioId !== p.studioId) return 'forbidden';
   if (s.kind === 'admin') return (await isAdmin(db, s)) ? 'ok' : 'forbidden';
   if (!servable(p)) return 'forbidden';
@@ -29,7 +28,7 @@ export async function canAccessProject(db: Db, s: SessionRow | null, p: ProjectR
   return 'forbidden'; // mcp tokens: H4
 }
 
-export async function listProjectsFor(db: Db, s: SessionRow | null): Promise<ProjectRow[]> {
+export async function listProjectsFor(db: Db, s: Viewer | null): Promise<ProjectRow[]> {
   if (!s) return [];
   const out: ProjectRow[] = [];
   for (const p of await db.select().from(projects)) if ((await canAccessProject(db, s, p)) === 'ok') out.push(p);
@@ -44,7 +43,7 @@ export function requireScope(scope: 'write'): MiddlewareHandler<AppEnv> {
     await next();
   };
 }
-export function requireKind(...kinds: SessionRow['kind'][]): MiddlewareHandler<AppEnv> {
+export function requireKind(...kinds: Viewer['kind'][]): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const s = c.get('session');
     if (!s || !kinds.includes(s.kind) || (s.kind === 'admin' && !(await isAdmin(c.get('db'), s)))) return c.json({ error: 'unauthorized' }, 401);

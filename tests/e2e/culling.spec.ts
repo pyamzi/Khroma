@@ -1,5 +1,5 @@
 import { test, expect } from 'playwright/test';
-import { startTestServer } from './server.js';
+import { startTestServer, linkIn } from './server.js';
 
 let srv: Awaited<ReturnType<typeof startTestServer>>;
 test.beforeAll(async () => { srv = await startTestServer(); });
@@ -11,7 +11,7 @@ test('client signs in, culls with a shared allowance, requests extras, comments,
   await page.getByRole('button', { name: 'Email me a link' }).click();
   await expect(page.getByText(/sign-in link is on its way/)).toBeVisible();
   await expect.poll(() => srv.mailbox().length).toBe(1);
-  const link = srv.mailbox()[0]!.text.match(/http:\/\/127\.0\.0\.1:\d+\/auth\/[A-Za-z0-9_-]+/)![0];
+  const link = linkIn(srv.mailbox()[0]!.text);
   await page.goto(link);
   // one project → lands on its home
   await expect(page.getByRole('heading', { name: 'Wedding' })).toBeVisible();

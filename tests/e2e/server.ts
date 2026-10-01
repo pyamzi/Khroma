@@ -8,6 +8,7 @@ import { users } from '../../src/server/db/schema.js';
 import { createApp } from '../../src/server/app.js';
 import { createAuth } from '../../src/server/auth/better.js';
 import { signup } from '../../src/server/auth/signup.js';
+import { makeSignInHandlers } from '../../src/server/auth/signin.js';
 import { startWorker } from '../../src/server/jobs/worker.js';
 import { runOnce } from '../../src/server/jobs/queue.js';
 import { makeEmailHandlers } from '../../src/server/email/send.js';
@@ -16,13 +17,17 @@ import { memoryStorage } from '../../src/server/storage.js';
 import { createClient, createProject } from '../../src/server/domain/admin.js';
 import { addPhoto, makePreviewHandlers } from '../../src/server/domain/photos.js';
 
+/** The sign-in link in an email's text. */
+export const linkIn = (text: string) => text.match(/https?:\/\/\S+\/api\/ba\/magic-link\/verify\?\S+/)![0];
+
 /** The real app in-process on in-memory Postgres: Studio "E2E Studio" (owner@x.com), client sarah@x.com, three RAWs, allowance 2. Serves dist/web. */
 export async function startTestServer() {
   const port = 3300 + Math.floor(Math.random() * 500); const baseUrl = `http://127.0.0.1:${port}`;
   const config = loadConfig({ DATABASE_URL: 'pglite://memory', BASE_URL: baseUrl });
   const { db, close } = await openDb(config.databaseUrl, { migrate: true });
   const storage = memoryStorage(); const mail = memoryTransport();
-  const handlers = { ...makeEmailHandlers(() => mail, '127.0.0.1'), ...makePreviewHandlers(storage) };
+  const auth = createAuth({ root: db, config, getTransport: () => mail });
+  const handlers = { ...makeEmailHandlers(() => mail, '127.0.0.1'), ...makePreviewHandlers(storage), ...makeSignInHandlers(auth, config) };
   await asSystem(db, (tx) => signup(tx, { email: 'owner@x.com', studioName: 'E2E Studio', baseUrl }));
   const [{ studioId }] = (await asSystem(db, (tx) => tx.select({ studioId: users.studioId }).from(users).where(eq(users.email, 'owner@x.com')))) as [{ studioId: string }];
   const projectId = await withStudio(db, studioId, async (tx) => {
@@ -37,12 +42,21 @@ export async function startTestServer() {
   while ((await runOnce(db, handlers)) === 'ran') { /* previews and the signup email */ }
   mail.sent.length = 0; // drop the signup email
   const stopWorker = startWorker(db, handlers, { intervalMs: 200 });
-  const server = serve({ fetch: createApp({ db, config, storage, auth: createAuth({ root: db, config, getTransport: () => mail }), webRoot: './dist/web' }).fetch, port });
+  const server = serve({ fetch: createApp({ db, config, storage, auth, webRoot: './dist/web' }).fetch, port });
+  /** Requests a sign-in email and returns its link; a browser follows both hops (verify, then /auth/continue) by itself. */
   const signInLink = async (email: string): Promise<string> => {
     const before = mail.sent.length;
     await fetch(`${baseUrl}/api/auth/request`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: JSON.stringify({ email }) });
     for (let i = 0; i < 50 && mail.sent.length <= before; i++) await new Promise((r) => setTimeout(r, 100));
-    return mail.sent[before]!.text.match(/https?:\/\/[^\s]+\/auth\/[A-Za-z0-9_-]+/)![0];
+    return linkIn(mail.sent[before]!.text);
   };
-  return { baseUrl, projectId, studioId, db, mailbox: (): Mail[] => mail.sent, signInLink, async stop() { stopWorker(); await new Promise((r) => server.close(r)); await close(); } };
+  /** Signs in over HTTP like a browser would and returns the session cookie. */
+  const signInCookie = async (email: string): Promise<string> => {
+    const verify = await fetch(await signInLink(email), { redirect: 'manual' });
+    const cookie = verify.headers.getSetCookie().map((c) => c.split(';')[0]!).filter((c) => !c.endsWith('=')).join('; ');
+    const cont = await fetch(new URL(verify.headers.get('location')!, baseUrl), { redirect: 'manual', headers: { cookie } });
+    if (cont.headers.get('location') !== '/') throw new Error(`sign-in refused for ${email}`);
+    return cookie;
+  };
+  return { baseUrl, projectId, studioId, db, mailbox: (): Mail[] => mail.sent, signInLink, signInCookie, async stop() { stopWorker(); await new Promise((r) => server.close(r)); await close(); } };
 }

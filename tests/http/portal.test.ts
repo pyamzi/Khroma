@@ -84,15 +84,17 @@ describe('portal api', () => {
   });
 
   it('a project-scoped guest session can view but not pick, finish, or comment', async () => {
-    const { db, api, post, json, pid, studioId } = await boot();
-    await asSystem(db, (tx) => tx.insert(sessions).values({ id: 'g1', studioId, kind: 'guest', subject: 'Guest 1', projectId: pid, tokenHash: hashToken('guest-token'), expiresAt: '2999-01-01T00:00:00Z' }));
-    const guest = 'og_session=guest-token';
-    const photos = await json<PhotoItem[]>(await api(`/api/projects/${pid}/photos`, { cookie: guest }));
+    const { db, api, json, pid, studioId } = await boot();
+    // ponytail: guests ride the plugin-style bearer lookup until H2b decides how they sign in
+    await asSystem(db, (tx) => tx.insert(sessions).values({ id: 'g1', studioId, kind: 'guest', subject: 'Guest 1', projectId: pid, tokenHash: hashToken('ogp_guest-token'), expiresAt: '2999-01-01T00:00:00Z' }));
+    const bearer = 'ogp_guest-token';
+    const send = (path: string, body: unknown) => api(path, { method: 'POST', body: JSON.stringify(body), bearer });
+    const photos = await json<PhotoItem[]>(await api(`/api/projects/${pid}/photos`, { bearer }));
     expect(photos).toHaveLength(3);
-    const sel = await json<{ summary: Summary }>(await api(`/api/projects/${pid}/selection`, { cookie: guest }));
-    expect((await post(`/api/projects/${pid}/picks`, { photoId: photos[0]!.id, picked: true, selectionVersion: sel.summary.selectionVersion }, guest)).status).toBe(401);
-    expect((await post(`/api/projects/${pid}/finish`, { selectionVersion: sel.summary.selectionVersion }, guest)).status).toBe(401);
-    expect((await post(`/api/photos/${photos[0]!.id}/comments`, { text: 'hi' }, guest)).status).toBe(401);
-    expect((await api(`/api/photos/${photos[0]!.id}/comments`, { cookie: guest })).status).toBe(200);
+    const sel = await json<{ summary: Summary }>(await api(`/api/projects/${pid}/selection`, { bearer }));
+    expect((await send(`/api/projects/${pid}/picks`, { photoId: photos[0]!.id, picked: true, selectionVersion: sel.summary.selectionVersion })).status).toBe(401);
+    expect((await send(`/api/projects/${pid}/finish`, { selectionVersion: sel.summary.selectionVersion })).status).toBe(401);
+    expect((await send(`/api/photos/${photos[0]!.id}/comments`, { text: 'hi' })).status).toBe(401);
+    expect((await api(`/api/photos/${photos[0]!.id}/comments`, { bearer })).status).toBe(200);
   });
 });

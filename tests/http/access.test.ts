@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { clients, projects } from '../../src/server/db/schema.js';
 import type { Db } from '../../src/server/db/client.js';
 import { canAccessProject, listProjectsFor } from '../../src/server/http/access.js';
-import type { SessionRow } from '../../src/server/auth/magic.js';
+import type { Viewer } from '../../src/server/http/session.js';
 import { studioTestDb } from '../helpers.js';
 
 async function fresh() {
@@ -12,8 +12,8 @@ async function fresh() {
     { id: 'p1', clientId: 'c1', metadataJson: {} }, { id: 'p2', clientId: 'c2', metadataJson: {} },
     { id: 'p4', clientId: 'c1', metadataJson: {}, archivedAt: '2026-01-01T00:00:00Z' },
   ]);
-  const s = (id: string, kind: SessionRow['kind'], subject: string, projectId: string | null = null, sid = studioId): SessionRow =>
-    ({ id, studioId: sid, kind, subject, projectId, expiresAt: '2999-01-01T00:00:00Z', scope: 'read', loginTokenHash: null, tokenHash: null, redeemedAt: null, nickname: null, createdAt: '' });
+  const s = (id: string, kind: Viewer['kind'], subject: string, projectId: string | null = null, sid = studioId): Viewer =>
+    ({ id, studioId: sid, kind, subject, projectId, scope: 'read', nickname: null });
   return { db, sarah: s('s1', 'client', 'sarah@x'), bob: s('s2', 'client', 'bob@x'), owner: s('s3', 'admin', 'owner@x'), guest: s('s4', 'guest', 'Guest 1', 'p1'),
     impostor: s('s5', 'admin', 'nobody@x'), plugin: s('s6', 'plugin', 'tok', 'p1'), pluginAll: s('s7', 'plugin', 'tok'), foreignOwner: s('s8', 'admin', 'owner@x', null, 'another-studio') };
 }

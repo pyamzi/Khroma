@@ -62,7 +62,7 @@ export function createApp({ db, config, storage, auth, webRoot = './dist/web' }:
     await next();
   });
   app.use('/api/*', bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => c.json({ error: 'too_large' }, 413) }));
-  app.use('*', sessionMiddleware(db));
+  app.use('*', sessionMiddleware(db, auth));
   app.use('*', async (c, next) => { c.set('storage', storage); await next(); });
   app.route('/', systemRoutes(config, auth)); // registered before the request transaction: these open their own system transactions
   // The only Better Auth route that is public; sign-in links are sent by the job queue. Better Auth reads callbackURL from the clicked link, so a user could edit it
@@ -73,7 +73,10 @@ export function createApp({ db, config, storage, auth, webRoot = './dist/web' }:
       const cb = new URL(c.req.query('callbackURL') ?? '', config.baseUrl);
       ok = cb.origin === new URL(config.baseUrl).origin && cb.pathname === '/auth/continue' && !!verifyContinue(config.betterAuthSecret, Object.fromEntries(cb.searchParams), Date.now());
     } catch { /* unparseable callback */ }
-    return ok ? auth.handler(c.req.raw) : c.redirect('/signin?error=expired');
+    if (!ok) return c.redirect('/signin?error=expired');
+    // Better Auth also honours these two from the link; either would send a new user, or a consumed link's error, somewhere other than our callback
+    const url = new URL(c.req.url); url.searchParams.delete('newUserCallbackURL'); url.searchParams.delete('errorCallbackURL');
+    return auth.handler(new Request(url, { method: c.req.method, headers: c.req.raw.headers }));
   });
   app.use('/api/*', requestTx(db));
   app.route('/', meRoutes()); app.route('/', projectRoutes()); app.route('/', photoRoutes());

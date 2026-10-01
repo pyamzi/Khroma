@@ -8,13 +8,23 @@ describe('app', () => {
     expect(r.status).toBe(200); expect(await r.json()).toEqual({ ok: true });
     await drain(); expect(mail.sent).toHaveLength(1); expect(mail.sent[0]).toMatchObject({ to: 'owner@x.com', fromName: 'OpenGallery' }); // unconfirmed: the platform speaks
     const link = linkFrom(mail.sent[0]!.text);
-    const res = await app.request(link, { redirect: 'manual' });
-    expect(res.status).toBe(302); expect(res.headers.get('location')).toBe('/');
-    const cookie = cookieOf(res); expect(cookie).toMatch(/^og_session=/); expect(res.headers.get('set-cookie')).toMatch(/HttpOnly/);
+    const verify = await app.request(link, { redirect: 'manual' });
+    expect(verify.status).toBe(302); expect(new URL(verify.headers.get('location')!).pathname).toBe('/auth/continue');
+    expect(verify.headers.get('set-cookie')).toMatch(/^og\.session_token=[^;]+;.*HttpOnly/i);
+    const cookie = cookieOf(verify);
+    expect((await app.request(verify.headers.get('location')!, { redirect: 'manual', headers: { cookie } })).headers.get('location')).toBe('/');
     expect(await (await api('/api/me', { cookie })).json()).toMatchObject({ kind: 'admin', isAdmin: true, studio: { name: 'Lumen' } });
-    expect((await app.request(link, { redirect: 'manual' })).headers.get('location')).toMatch(/error=expired/); // single use
-    await api('/api/auth/signout', { method: 'POST', cookie });
+    const again = await app.request(link, { redirect: 'manual' }); // single use: no new session, and without one the callback says expired
+    expect(again.headers.get('set-cookie')).toBeNull();
+    expect((await app.request(again.headers.get('location')!, { redirect: 'manual' })).headers.get('location')).toBe('/signin?error=expired');
+    const out = await api('/api/auth/signout', { method: 'POST', cookie });
+    expect(await out.json()).toEqual({ ok: true }); expect(out.headers.get('set-cookie')).toMatch(/og\.session_token=;/);
     expect((await api('/api/me', { cookie })).status).toBe(401);
+  });
+  it('an H1 /auth/<token> link now says expired', async () => {
+    const { app } = await boot();
+    const res = await app.request('/auth/Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdoaWo', { redirect: 'manual' });
+    expect(res.status).toBe(302); expect(res.headers.get('location')).toBe('/signin?error=expired');
   });
   it('signup validates its body and never reveals whether the email exists', async () => {
     const { post, mail, drain } = await boot();

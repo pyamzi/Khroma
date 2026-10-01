@@ -101,6 +101,26 @@ describe('GET /auth/continue', () => {
     expect(await session(s, a.cookie)).toBeNull();
   });
 
+  it('a verified link that skips /auth/continue is not signed in to the app', async () => {
+    const s = await boot(); const { studioId } = await makeStudio(s.db); await addClient(s, studioId, 'c@x.com');
+    const a = await arrive(s, { email: 'c@x.com', studioId, kind: 'client' });
+    expect((await session(s, a.cookie))?.session.studioId).toBeNull(); // Better Auth has a session, bound to no Studio
+    expect((await s.api('/api/me', { cookie: a.cookie })).status).toBe(401);
+    expect(await s.json(await s.api('/api/projects', { cookie: a.cookie }))).toEqual([]);
+  });
+
+  it('a new user cannot skip /auth/continue through newUserCallbackURL or errorCallbackURL', async () => {
+    const s = await boot(); const { studioId } = await makeStudio(s.db); await addClient(s, studioId, 'new@x.com'); // never seen by Better Auth
+    await s.auth.api.signInMagicLink({ body: { email: 'new@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'client', iat: Date.now() }), metadata: { studioId, kind: 'client', fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
+    const u = new URL(s.mail.sent.at(-1)!.text.match(/http\S+/)![0]);
+    u.searchParams.set('newUserCallbackURL', '/'); u.searchParams.set('errorCallbackURL', 'https://evil.example/');
+    const first = await s.app.request(u.pathname + u.search, { redirect: 'manual' });
+    expect(first.headers.get('set-cookie')).toContain('og.session_token=');
+    expect(new URL(first.headers.get('location')!).pathname).toBe('/auth/continue');
+    const again = new URL((await s.app.request(u.pathname + u.search, { redirect: 'manual' })).headers.get('location')!); // consumed: the error goes to our callback, not theirs
+    expect([again.origin, again.pathname]).toEqual(['http://localhost:3000', '/auth/continue']);
+  });
+
   it('a callback with no session goes to expired', async () => {
     const s = await boot(); const { studioId } = await makeStudio(s.db);
     const res = await s.app.request(continueUrl(s.config.betterAuthSecret, { studioId, kind: 'client', iat: Date.now() }), { redirect: 'manual' });

@@ -15,9 +15,7 @@ describe.skipIf(!hasLua)('plugin Lua API module against the live server', () => 
     const srv = await startTestServer();
     try {
       const j = async (path: string, init: RequestInit & { cookie?: string } = {}) => fetch(srv.baseUrl + path, { ...init, headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch', ...(init.cookie ? { cookie: init.cookie } : {}), ...(init.headers ?? {}) } });
-      const cookieOf = (res: Response) => res.headers.get('set-cookie')!.split(';')[0]!;
-      const owner = cookieOf(await fetch(await srv.signInLink('owner@x.com'), { redirect: 'manual' }));
-      const sarah = cookieOf(await fetch(await srv.signInLink('sarah@x.com'), { redirect: 'manual' }));
+      const owner = await srv.signInCookie('owner@x.com'); const sarah = await srv.signInCookie('sarah@x.com');
       // the client picks one RAW, comments on it, and finishes
       const photos = await (await j(`/api/projects/${srv.projectId}/photos?stage=culling`, { cookie: sarah })).json() as { id: string }[];
       const sel = await (await j(`/api/projects/${srv.projectId}/selection`, { cookie: sarah })).json() as { summary: { selectionVersion: number } };

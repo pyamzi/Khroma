@@ -114,16 +114,14 @@ export const sessions = pgTable('sessions', {
   id: text('id').primaryKey(),
   studioId: studioId(),
   kind: text('kind', { enum: ['client', 'admin', 'guest', 'plugin', 'mcp'] }).notNull(),
-  subject: text('subject').notNull(), // email, or guest nickname
+  subject: text('subject').notNull(), // token creator's email, or guest nickname
   projectId: text('project_id'),
   scope: text('scope').notNull().default('read'),
-  loginTokenHash: text('login_token_hash'), // magic link, cleared on redeem
-  tokenHash: text('token_hash'), // session/bearer token
+  tokenHash: text('token_hash'), // bearer token
   expiresAt: text('expires_at').notNull(),
-  redeemedAt: text('redeemed_at'),
   nickname: text('nickname'),
   createdAt: text('created_at').notNull().default(now()),
-}, (t) => [uniqueIndex('sessions_login_token').on(t.loginTokenHash), uniqueIndex('sessions_token').on(t.tokenHash), index('sessions_studio').on(t.studioId)]);
+}, (t) => [uniqueIndex('sessions_token').on(t.tokenHash), index('sessions_studio').on(t.studioId)]);
 
 export const invoices = pgTable('invoices', {
   id: text('id').primaryKey(),

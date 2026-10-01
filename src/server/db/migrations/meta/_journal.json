@@ -22,6 +22,13 @@
       "when": 1790843824221,
       "tag": "0002_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790845665300,
+      "tag": "0003_retire_h1_sessions",
+      "breakpoints": true
     }
   ]
 }

@@ -61,10 +61,10 @@ describe('tenant isolation over HTTP', () => {
     }
   });
   it('a request that fails after writing changes nothing', async () => {
-    const { db, A } = await twoStudios();
+    const { db, auth, A } = await twoStudios();
     const app = new Hono<AppEnv>();
     app.onError(onError);
-    app.use('*', sessionMiddleware(db));
+    app.use('*', sessionMiddleware(db, auth));
     app.use('/api/*', requestTx(db));
     app.post('/api/boom', async (c) => { await c.get('db').insert(events).values({ actor: 'test', type: 'boom', payload: {} }); throw new Error('after write'); });
     app.post('/api/refuse', async (c) => { await c.get('db').insert(events).values({ actor: 'test', type: 'refuse', payload: {} }); return c.json({ error: 'nope' }, 422); });

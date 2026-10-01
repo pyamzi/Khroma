@@ -3,6 +3,7 @@ import type { Db } from '../db/client.js';
 import { sessions, events, projects } from '../db/schema.js';
 import { hashToken, randomToken } from '../auth/magic.js';
 import { newId } from '../ids.js';
+import type { Viewer } from '../http/session.js';
 
 export type TokenScope = 'read' | 'read+write';
 export class TokenError extends Error { constructor(public code: 'invalid' | 'not_found') { super(code); this.name = 'TokenError'; } }
@@ -16,6 +17,12 @@ export async function createPluginToken(db: Db, o: { name: string; scope: TokenS
   await db.insert(sessions).values({ id, kind: 'plugin', subject: o.actor.toLowerCase(), nickname: name, scope: o.scope, projectId: o.projectId ?? null, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + YEAR).toISOString() });
   await db.insert(events).values({ actor: o.actor, type: 'token_created', payload: { id, name, scope: o.scope, projectId: o.projectId ?? null } });
   return { id, token };
+}
+
+/** The viewer a bearer token stands for, if it is live. Looked up before any Studio is known, so `db` is a system transaction. */
+export async function tokenViewer(db: Db, token: string, now = Date.now()): Promise<Viewer | null> {
+  const [r] = await db.select().from(sessions).where(eq(sessions.tokenHash, hashToken(token))).limit(1);
+  return r && Date.parse(r.expiresAt) > now ? { id: r.id, studioId: r.studioId, kind: r.kind, subject: r.subject, projectId: r.projectId, scope: r.scope, nickname: r.nickname } : null;
 }
 
 export async function listPluginTokens(db: Db) {

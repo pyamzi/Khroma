@@ -3,7 +3,11 @@ import { invoices, projects, clients, jobs, authUsers } from '../src/server/db/s
 import { getSetting, setSetting } from '../src/server/db/settings.js';
 import { withStudio, asSystem } from '../src/server/db/tenancy.js';
 import { join } from 'node:path';
-import { openDb } from '../src/server/db/client.js';
+import { cp, readFile, rm, writeFile } from 'node:fs/promises';
+import { PGlite } from '@electric-sql/pglite';
+import { drizzle } from 'drizzle-orm/pglite';
+import { migrate } from 'drizzle-orm/pglite/migrator';
+import { openDb, migrationsFolder } from '../src/server/db/client.js';
 import { checkTenancy } from '../src/server/db/check.js';
 import { testDb, makeStudio, pgFail, tmpDir } from './helpers.js';
 import { pgCode } from '../src/server/db/errors.js';
@@ -54,5 +58,21 @@ describe('database', () => {
   it('opens an on-disk PGlite database in a directory that does not exist yet', async () => {
     const { db, close } = await openDb(`pglite://${join(await tmpDir(), '.data', 'dev')}`, { migrate: true });
     try { expect(await checkTenancy(db)).toEqual([]); } finally { await close(); }
+  });
+  it('migration 0003 retires H1 people sessions and keeps plugin tokens', async () => {
+    const before = await tmpDir(); await cp(migrationsFolder, before, { recursive: true }); // the schema as H1 left it
+    const journal = JSON.parse(await readFile(join(before, 'meta/_journal.json'), 'utf8')) as { entries: { tag: string }[] };
+    const last = journal.entries.pop()!; expect(last.tag).toBe('0003_retire_h1_sessions');
+    await writeFile(join(before, 'meta/_journal.json'), JSON.stringify(journal)); await rm(join(before, `${last.tag}.sql`));
+    const pg = new PGlite(); const db = drizzle(pg);
+    try {
+      await migrate(db, { migrationsFolder: before });
+      await pg.exec(`insert into studios (id, name) values ('s', 'S');
+        insert into sessions (id, studio_id, kind, subject, login_token_hash, token_hash, expires_at) values
+          ('a', 's', 'admin', 'o@x', 'l1', 't1', '2999-01-01'), ('c', 's', 'client', 'c@x', null, 't2', '2999-01-01'), ('p', 's', 'plugin', 'o@x', null, 't3', '2999-01-01');`);
+      await migrate(db, { migrationsFolder });
+      expect((await pg.query<{ id: string; kind: string }>('select id, kind from sessions')).rows).toEqual([{ id: 'p', kind: 'plugin' }]);
+      expect((await pg.query(`select 1 from information_schema.columns where table_name = 'sessions' and column_name in ('login_token_hash', 'redeemed_at')`)).rows).toEqual([]);
+    } finally { await pg.close(); }
   });
 });
