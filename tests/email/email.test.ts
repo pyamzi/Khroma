@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { jobs } from '../../src/server/db/schema.js';
 import { asSystem, withStudio } from '../../src/server/db/tenancy.js';
-import { runOnce } from '../../src/server/jobs/queue.js';
+import { runOnce, enqueue } from '../../src/server/jobs/queue.js';
 import { renderTemplate } from '../../src/server/email/templates.js';
 import { memoryTransport, smtpTransport } from '../../src/server/email/transport.js';
 import { sendEmail, makeEmailHandlers } from '../../src/server/email/send.js';
@@ -33,6 +33,14 @@ describe('email', () => {
     await runOnce(db, makeEmailHandlers(() => null, 'g'));
     const [row] = await asSystem(db, (tx) => tx.select().from(jobs));
     expect(row!.state).toBe('pending'); expect(row!.lastError).toMatch(/no email transport/);
+  });
+  it('parks an H1 magic-link job for review instead of mailing a broken link', async () => {
+    const db = await testDb(); const { studioId } = await makeStudio(db); const t = memoryTransport();
+    await asSystem(db, (tx) => enqueue(tx, { kind: 'send_email', payload: { to: 'a@x', template: 'magic_link', vars: { studio: 'S' }, key: 'magic:1', magic: { kind: 'admin', baseUrl: 'https://og.example' } }, studioId }));
+    await runOnce(db, makeEmailHandlers(() => t, 'g'));
+    const [row] = await asSystem(db, (tx) => tx.select().from(jobs));
+    expect(row!.state).toBe('needs_review'); expect(row!.lastError).toMatch(/H1 magic-link job/);
+    expect(t.sent).toHaveLength(0);
   });
   it('smtp transport describes its host', () => {
     expect(smtpTransport('smtp://u:p@h:587', 'no-reply@og.example').describe()).toBe('smtp h:587');

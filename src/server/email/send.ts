@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { studios, users } from '../db/schema.js';
-import { enqueue, type Handlers } from '../jobs/queue.js';
+import { enqueue, NeedsReview, type Handlers } from '../jobs/queue.js';
 import { renderTemplate, type TemplateName } from './templates.js';
 import type { Transport } from './transport.js';
 
@@ -17,6 +17,7 @@ export function makeEmailHandlers(getTransport: () => Transport | null, domain: 
   return {
     send_email: async (payload, ctx) => {
       const o = payload as EmailJob;
+      if ('magic' in o) throw new NeedsReview('H1 magic-link job; request a new link'); // H1 minted links here; an H1 machine may still enqueue these during the rolling deploy
       const t = getTransport(); if (!t) throw new Error('no email transport configured');
       const [studio] = await ctx.db.select({ name: studios.name, confirmedAt: studios.confirmedAt }).from(studios).where(eq(studios.id, ctx.studioId)).limit(1);
       const [owner] = await ctx.db.select({ email: users.email }).from(users).where(and(eq(users.studioId, ctx.studioId), eq(users.role, 'owner'))).orderBy(asc(users.createdAt)).limit(1);
