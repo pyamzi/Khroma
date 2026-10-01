@@ -35,10 +35,12 @@ Magic links are minted when the email job sends them. Team links work for 15 min
 
 The first deploy of H1.5 signs everyone out once. Lightroom plugin tokens keep working. While it rolls out, the old machine may answer with errors for tens of seconds until the new one takes over; then everyone signs in again. In production the app refuses to start unless `BETTER_AUTH_URL` has the same https origin as `BASE_URL`.
 
-After that deploy, run this as the owner in the Neon SQL editor. It should return 0, meaning no H1 sessions are left:
+After that deploy, run this in the Neon SQL editor. It should return 0, meaning no H1 sessions are left. Row-level security hides tenant rows from the owner, so the query switches to `og_system` first:
 
 ```sql
+begin; set local role og_system;
 select count(*) from sessions where kind in ('admin','client');
+rollback;
 ```
 
 Better Auth's tables (`auth_*`) are not visible to the app's tenant roles, and `npm run check:tenancy` checks that.

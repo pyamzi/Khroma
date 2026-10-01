@@ -6,7 +6,7 @@ import { authSessions, clients, studios, users } from '../db/schema.js';
 
 type Kind = 'admin' | 'client';
 const MAX_AGE: Record<Kind, number> = { admin: 15 * 60_000, client: 30 * 864e5 };
-// `|` cannot occur in a Studio id, kind, iat, or email, so the signed string is unambiguous
+// The email is last, so a `|` inside it cannot shift the other fields; any mismatch still fails the signature
 const sign = (secret: string, studioId: string, kind: Kind, iat: number | string, email: string) => createHmac('sha256', secret).update(`${studioId}|${kind}|${iat}|${email}`).digest('base64url');
 
 /** The callbackURL handed to Better Auth: names the Studio, kind, and email, signed so a link for one Studio or person cannot be pointed at another. */
