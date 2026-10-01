@@ -24,16 +24,16 @@ export function verifyContinue(secret: string, q: Record<string, string | undefi
   return { studioId: studio, kind, email };
 }
 
-/** Pins a Better Auth session to one Studio and kind, if the email is a member of it. The auth_* tables are root-only, so those writes use `root`, never a system transaction. */
+/** Pins a Better Auth session to one Studio and kind, if the email is a member of it. The auth_* tables are root-only, so that write uses `root`, never a system transaction. */
 export async function bindSession(root: Db, o: { sessionId: string; email: string; studioId: string; kind: Kind; now: number }): Promise<boolean> {
   const member = await asSystem(root, async (tx) => {
     const rows = o.kind === 'admin'
       ? await tx.select({ id: users.id }).from(users).where(and(eq(users.studioId, o.studioId), eq(users.email, o.email))).limit(1)
       : await tx.select({ id: clients.id }).from(clients).where(and(eq(clients.studioId, o.studioId), sql`${clients.emails} ? ${o.email}`)).limit(1);
+    if (rows.length > 0 && o.kind === 'admin') await tx.update(studios).set({ confirmedAt: new Date(o.now).toISOString() }).where(and(eq(studios.id, o.studioId), isNull(studios.confirmedAt))); // the owner proved the address
     return rows.length > 0;
   });
   if (!member) return false;
   await root.update(authSessions).set({ studioId: o.studioId, kind: o.kind }).where(eq(authSessions.id, o.sessionId));
-  if (o.kind === 'admin') await root.update(studios).set({ confirmedAt: new Date(o.now).toISOString() }).where(and(eq(studios.id, o.studioId), isNull(studios.confirmedAt))); // the owner proved the address
   return true;
 }
