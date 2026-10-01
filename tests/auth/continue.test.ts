@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { continueUrl, verifyContinue } from '../../src/server/auth/continue.js';
-import { authSessions, studios, clients } from '../../src/server/db/schema.js';
+import { authSessions, authVerifications, studios, clients } from '../../src/server/db/schema.js';
 import { asSystem } from '../../src/server/db/tenancy.js';
 import { newId } from '../../src/server/ids.js';
 import { makeStudio } from '../helpers.js';
@@ -48,14 +48,22 @@ describe('GET /auth/continue', () => {
     expect(await session(s, a.cookie)).toMatchObject({ session: { studioId, kind: 'client' } });
   });
 
-  it('a Team link older than 15 minutes is refused and leaves no session', async () => {
+  it('a Team link older than 15 minutes is refused at verify and leaves no session', async () => {
     const s = await boot(); const { studioId } = await makeStudio(s.db, { ownerEmail: 'o@x.com' });
-    const a = await arrive(s, { email: 'o@x.com', studioId, kind: 'admin', age: 16 * MIN });
+    await s.auth.api.signInMagicLink({ body: { email: 'o@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'admin', iat: Date.now() - 16 * MIN }), metadata: { studioId, kind: 'admin', fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
+    const res = await s.app.request(s.mail.sent.at(-1)!.text.match(/http\S+/)![0], { redirect: 'manual' });
+    expect(res.headers.get('location')).toBe('/signin?error=expired');
+    expect(await s.db.select().from(authSessions)).toHaveLength(0);
+  });
+
+  it('/auth/continue itself signs out a session whose callback fails, and clears the cookie', async () => {
+    const s = await boot(); const { studioId } = await makeStudio(s.db, { ownerEmail: 'o@x.com' });
+    const a = await arrive(s, { email: 'o@x.com', studioId, kind: 'admin', tamper: (u) => u.replace('kind=admin', 'kind=client') }); // fresh and signed at verify, then edited for /auth/continue
     const res = await follow(s, a);
     expect(res.headers.get('location')).toBe('/signin?error=expired');
     expect(await session(s, a.cookie)).toBeNull();
     expect(await s.db.select().from(authSessions)).toHaveLength(0);
-    expect(res.headers.get('set-cookie')).toMatch(/og\.session_token=;/); // the browser's cookie is cleared
+    expect(res.headers.get('set-cookie')).toMatch(/og\.session_token=;/);
   });
 
   it('a Client link 29 days old still works', async () => {
@@ -106,5 +114,23 @@ describe('GET /auth/continue', () => {
     expect((await follow(s, a)).headers.get('location')).toBe('/');
     const [row] = await asSystem(s.db, (tx) => tx.select().from(studios).where(eq(studios.id, studioId)));
     expect(row!.confirmedAt).not.toBeNull();
+  });
+
+  describe('verify refuses links whose callback is not our signed, unexpired one', () => {
+    const edit = async (edit: (u: URL) => void) => {
+      const s = await boot(); const { studioId } = await makeStudio(s.db, { ownerEmail: 'o@x.com' });
+      const iat = Date.now() - 16 * MIN;
+      await s.auth.api.signInMagicLink({ body: { email: 'o@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'admin', iat }), metadata: { studioId, kind: 'admin', fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
+      const u = new URL(s.mail.sent.at(-1)!.text.match(/http\S+/)![0]); edit(u);
+      const res = await s.app.request(u.pathname + u.search, { redirect: 'manual' });
+      expect(res.status).toBe(302); expect(res.headers.get('location')).toBe('/signin?error=expired');
+      expect(res.headers.get('set-cookie')).toBeNull();
+      expect(await s.db.select().from(authSessions)).toHaveLength(0);
+      expect(await s.db.select().from(authVerifications)).toHaveLength(1); // the token was never consumed
+    };
+    it('an old Team link with callbackURL rewritten to /', () => edit((u) => u.searchParams.set('callbackURL', '/')));
+    it('an old Team link with the callback removed', () => edit((u) => u.searchParams.delete('callbackURL')));
+    it('a callback to /auth/continue with a bad signature', () => edit((u) => { const cb = new URL(u.searchParams.get('callbackURL')!, 'http://localhost:3000'); cb.searchParams.set('iat', String(Date.now())); u.searchParams.set('callbackURL', cb.pathname + cb.search); }));
+    it('a cross-origin callback that reuses a valid signed query', () => edit((u) => { const cb = new URL(u.searchParams.get('callbackURL')!, 'http://localhost:3000'); u.searchParams.set('callbackURL', `https://evil.example${cb.pathname}${cb.search}`); }));
   });
 });

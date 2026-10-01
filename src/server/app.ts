@@ -5,6 +5,7 @@ import type { Db } from './db/client.js';
 import type { Config } from './config.js';
 import type { Storage } from './storage.js';
 import type { Auth } from './auth/better.js';
+import { verifyContinue } from './auth/continue.js';
 import { withStudio, anonTx } from './db/tenancy.js';
 import { sessionMiddleware, type AppEnv } from './http/session.js';
 import { systemRoutes, meRoutes } from './http/routes/auth.js';
@@ -64,7 +65,16 @@ export function createApp({ db, config, storage, auth, webRoot = './dist/web' }:
   app.use('*', sessionMiddleware(db));
   app.use('*', async (c, next) => { c.set('storage', storage); await next(); });
   app.route('/', systemRoutes(config, auth)); // registered before the request transaction: these open their own system transactions
-  app.get('/api/ba/magic-link/verify', (c) => auth.handler(c.req.raw)); // the only Better Auth route that is public; sign-in links are sent by the job queue
+  // The only Better Auth route that is public; sign-in links are sent by the job queue. Better Auth reads callbackURL from the clicked link, so a user could edit it
+  // and turn a stale token into a session that never passes /auth/continue. Refuse before the token is consumed unless the callback is our own signed, unexpired one.
+  app.get('/api/ba/magic-link/verify', (c) => {
+    let ok = false;
+    try {
+      const cb = new URL(c.req.query('callbackURL') ?? '', config.baseUrl);
+      ok = cb.origin === new URL(config.baseUrl).origin && cb.pathname === '/auth/continue' && !!verifyContinue(config.betterAuthSecret, Object.fromEntries(cb.searchParams), Date.now());
+    } catch { /* unparseable callback */ }
+    return ok ? auth.handler(c.req.raw) : c.redirect('/signin?error=expired');
+  });
   app.use('/api/*', requestTx(db));
   app.route('/', meRoutes()); app.route('/', projectRoutes()); app.route('/', photoRoutes());
   app.route('/', selectionRoutes(config)); app.route('/', commentRoutes());
