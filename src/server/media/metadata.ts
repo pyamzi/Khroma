@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EXIFTOOL } from './previews.js';
+import { EXIFTOOL, TOOL_LIMITS } from './previews.js';
 
 const run = promisify(execFile);
 export type PhotoMetadata = { capturedAt: string | null; keywords: string[]; caption: string | null };
@@ -20,11 +20,11 @@ function parseDate(v: unknown): string | null {
 }
 
 /** Capture date, keywords (Lightroom Subject plus IPTC Keywords) and caption, via exiftool on a temp copy. Empty values when exiftool is missing or fails. */
-export async function readMetadata(bytes: Uint8Array): Promise<PhotoMetadata> {
+export async function readMetadata(bytes: Uint8Array, o: { tool?: string; timeoutMs?: number } = {}): Promise<PhotoMetadata> {
   const dir = await mkdtemp(join(tmpdir(), 'og-meta-'));
   try {
     const file = join(dir, 'src'); await writeFile(file, bytes);
-    const { stdout } = await run(EXIFTOOL, ['-j', '-n', '-DateTimeOriginal', '-Subject', '-Keywords', '-Description', '-Caption-Abstract', '-ImageDescription', file], { maxBuffer: 8 * 1024 * 1024 });
+    const { stdout } = await run(o.tool ?? EXIFTOOL, ['-j', '-n', '-DateTimeOriginal', '-Subject', '-Keywords', '-Description', '-Caption-Abstract', '-ImageDescription', file], { maxBuffer: 8 * 1024 * 1024, ...TOOL_LIMITS, timeout: o.timeoutMs ?? TOOL_LIMITS.timeout });
     const t = (JSON.parse(stdout) as Record<string, unknown>[])[0] ?? {};
     return {
       capturedAt: parseDate(t.DateTimeOriginal),

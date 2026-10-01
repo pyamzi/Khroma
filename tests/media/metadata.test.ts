@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { jpegBytes } from '../fixtures/make.js';
 import { readMetadata } from '../../src/server/media/metadata.js';
-import { renderSizes, heicToJpeg } from '../../src/server/media/convert.js';
+import { renderSizes, heicToJpeg, pickHeicOutput } from '../../src/server/media/convert.js';
 import { EXIFTOOL, PreviewError } from '../../src/server/media/previews.js';
 
 const run = promisify(execFile);
@@ -56,5 +56,27 @@ describe('heicToJpeg', () => {
   });
   it.skipIf(!hasHeifConvert)('throws PreviewError for bytes that are not HEIC', async () => {
     await expect(heicToJpeg(Buffer.from('not a heic'))).rejects.toBeInstanceOf(PreviewError);
+  });
+});
+
+describe('pickHeicOutput', () => {
+  it('prefers out.jpg, else the lowest-numbered out-N.jpg, else null', () => {
+    expect(pickHeicOutput(['in.heic', 'out.jpg', 'out-1.jpg'])).toBe('out.jpg');
+    expect(pickHeicOutput(['in.heic', 'out-10.jpg', 'out-2.jpg', 'out-1.jpg'])).toBe('out-1.jpg');
+    expect(pickHeicOutput(['in.heic', 'out-2.jpg', 'out-10.jpg'])).toBe('out-2.jpg');
+    expect(pickHeicOutput(['in.heic', 'other.jpg'])).toBeNull();
+  });
+});
+
+describe('tool timeouts', () => {
+  it('a hung tool is killed: readMetadata returns empty, heicToJpeg throws PreviewError', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'og-hang-test-'));
+    try {
+      const hang = join(dir, 'hang.sh'); await writeFile(hang, '#!/bin/sh\nexec sleep 30\n'); await chmod(hang, 0o755);
+      const t0 = Date.now();
+      expect(await readMetadata(await jpegBytes(), { tool: hang, timeoutMs: 200 })).toEqual({ capturedAt: null, keywords: [], caption: null });
+      await expect(heicToJpeg(Buffer.from('x'), { tool: hang, timeoutMs: 200 })).rejects.toBeInstanceOf(PreviewError);
+      expect(Date.now() - t0).toBeLessThan(10_000);
+    } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });

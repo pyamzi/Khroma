@@ -7,6 +7,11 @@ import sharp from 'sharp';
 
 const run = promisify(execFile);
 export const EXIFTOOL = process.env.EXIFTOOL_PATH ?? 'exiftool';
+export const PREVIEW_EDGE = 2048;
+export const MEDIUM_EDGE = 1280;
+export const THUMB_EDGE = 400;
+/** Every child process runs on untrusted uploads: a crafted file must not hang a worker job. */
+export const TOOL_LIMITS = { timeout: 30_000, killSignal: 'SIGKILL' } as const;
 export class PreviewError extends Error { constructor(msg: string) { super(msg); this.name = 'PreviewError'; } }
 
 /** Camera-rendered JPEG inside a RAW, via exiftool on a temp copy. Null when absent or exiftool is unavailable. */
@@ -16,7 +21,7 @@ async function embedded(src: Uint8Array): Promise<Buffer | null> {
     const file = join(dir, 'src'); await writeFile(file, src);
     for (const tag of ['JpgFromRaw', 'PreviewImage', 'OtherImage']) {
       try {
-        const { stdout } = await run(EXIFTOOL, ['-b', `-${tag}`, file], { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 });
+        const { stdout } = await run(EXIFTOOL, ['-b', `-${tag}`, file], { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, ...TOOL_LIMITS });
         if (stdout.length > 1024 && stdout[0] === 0xff && stdout[1] === 0xd8) return stdout;
       } catch { /* tag absent or exiftool missing: fall through to sharp */ }
     }

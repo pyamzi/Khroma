@@ -4,15 +4,13 @@ import type { Db } from '../db/client.js';
 import { photos, events } from '../db/schema.js';
 import { photoKey, type PhotoVariant, type Storage } from '../storage.js';
 import { sniffBytes, sha256 } from '../media/sniff.js';
-import { extractPreview, makeThumb, PreviewError } from '../media/previews.js';
+import { extractPreview, makeThumb, PreviewError, PREVIEW_EDGE, MEDIUM_EDGE, THUMB_EDGE } from '../media/previews.js';
 import { enqueue, type Handlers } from '../jobs/queue.js';
 import { newId } from '../ids.js';
 import { project } from './selection.js';
 import { onCullingMediaAdded } from './transitions.js';
 
-export const PREVIEW_EDGE = 2048;
-export const MEDIUM_EDGE = 1280;
-export const THUMB_EDGE = 400;
+export { PREVIEW_EDGE, MEDIUM_EDGE, THUMB_EDGE };
 export class PhotoError extends Error { constructor(public code: 'unsupported') { super(code); this.name = 'PhotoError'; } }
 
 /** Stores the original, records the photo, and queues its previews. `relPath` is the logical path within the project, e.g. raw/a.dng. */

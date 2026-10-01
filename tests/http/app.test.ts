@@ -4,7 +4,7 @@ import { createApp } from '../../src/server/app.js';
 import { createAuth } from '../../src/server/auth/better.js';
 import { loadConfig } from '../../src/server/config.js';
 import { memoryTransport } from '../../src/server/email/transport.js';
-import { r2Storage } from '../../src/server/storage.js';
+import { r2Storage, photoKey } from '../../src/server/storage.js';
 import { testDb, tmpDir } from '../helpers.js';
 
 describe('app', () => {
@@ -43,7 +43,7 @@ describe('app', () => {
     await drain(); expect(mail.sent.map((m) => [m.to, m.fromName])).toEqual([['a@x.com', 'OpenGallery'], ['a@x.com', 'OpenGallery']]);
   });
   it('serves a client only their project and its previews', async () => {
-    const { api, post, json, mail, drain, redeemLatest, signupOwner, seedProject, addCulling } = await boot();
+    const { api, post, json, mail, drain, redeemLatest, signupOwner, seedProject, addCulling, storage } = await boot();
     const { cookie: owner, studioId } = await signupOwner('owner@x.com', 'S');
     const p = await seedProject(owner, { emails: ['sarah@x.com'] }); const q = await seedProject(owner, { client: 'Jones', title: 'Other' });
     await addCulling(studioId, p.projectId, ['a']);
@@ -59,7 +59,13 @@ describe('app', () => {
     const img = await api(`/api/photos/${photos[0]!.id}/preview?size=thumb`, { cookie });
     expect(img.status).toBe(200); expect(img.headers.get('content-type')).toBe('image/jpeg');
     expect((await img.arrayBuffer()).byteLength).toBeGreaterThan(100);
-    expect((await api(`/api/photos/${photos[0]!.id}/preview?size=medium`, { cookie })).status).toBe(200);
+    const bytes = async (qs: string) => Buffer.from(await (await api(`/api/photos/${photos[0]!.id}/preview${qs}`, { cookie })).arrayBuffer());
+    const medium = await api(`/api/photos/${photos[0]!.id}/preview?size=medium`, { cookie });
+    expect(medium.status).toBe(200);
+    expect(Buffer.from(await medium.arrayBuffer()).equals(await bytes(''))).toBe(false); // its own object, not the preview
+    await storage.delete(photoKey(studioId, photos[0]!.id, 'medium')); // an H1-era photo has no medium: serve the preview
+    const fallback = await api(`/api/photos/${photos[0]!.id}/preview?size=medium`, { cookie });
+    expect(fallback.status).toBe(200); expect(Buffer.from(await fallback.arrayBuffer()).equals(await bytes(''))).toBe(true);
     expect((await api(`/api/photos/${photos[0]!.id}/preview`)).status).toBe(404); // no session → not found, no leak
     await post('/api/auth/request', { email: 'stranger@x.com' }, ''); await drain();
     expect(mail.sent.length).toBe(before + 1); // unknown email: nothing sent, same 200
