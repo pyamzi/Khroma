@@ -11,6 +11,7 @@ import { sweepUnconfirmedStudios } from './auth/signup.js';
 import { makeSignInHandlers } from './auth/signin.js';
 import { makeDeliveryHandlers } from './domain/delivery.js';
 import { sweepStaleUploads } from './domain/library.js';
+import { sweepCullingPreviews } from './domain/cleanup.js';
 
 async function main() {
   const config = loadConfig(process.env);
@@ -28,7 +29,11 @@ async function main() {
   const sweep = () => {
     void sweepUnconfirmedStudios(db).then((n) => n && console.log(`[sweep] removed ${n} unconfirmed studios`)).catch((e) => console.error('[sweep]', e));
     void sweepStaleUploads(db, storage, Date.now()).then((n) => n && console.log(`[sweep] removed ${n} stale uploads`)).catch((e) => console.error('[sweep]', e));
+    const day = new Date().toISOString().slice(0, 10); // culling purge: once per UTC day, off the same timer; a failed run retries next tick
+    if (day === lastPurgeDay) return;
+    void sweepCullingPreviews(db, storage, new Date()).then((r) => { lastPurgeDay = day; if (r.purged) console.log(`[sweep] purged ${r.purged} culling previews`); }).catch((e) => console.error('[sweep]', e));
   };
+  let lastPurgeDay = '';
   const sweeper = setInterval(sweep, 3600_000); sweep();
   const server = serve({ fetch: createApp({ db, config, storage, auth }).fetch, port: config.port }, () => console.log(`[boot] listening on ${config.port}`));
   const shutdown = () => { stopWorker(); clearInterval(sweeper); server.close(() => void close().finally(() => process.exit(0))); };

@@ -42,12 +42,12 @@ export const projectRoutes = () => new Hono<AppEnv>()
     const pickBy = new Map((await db.select().from(picks).where(eq(picks.projectId, p.id))).map((k) => [k.photoId, k]));
     const cc = await commentCounts(db, p.id);
     const rows = (await db.select().from(photos).where(and(eq(photos.projectId, p.id), eq(photos.stage, stage))))
-      .filter((r) => admin || r.live)
+      .filter((r) => admin || (r.live && !r.purgedAt))
       .sort((a, b) => a.sortOrder - b.sortOrder || (a.capturedAt ?? '').localeCompare(b.capturedAt ?? '') || a.relPath.localeCompare(b.relPath));
     return c.json(rows.map((r) => {
       const k = pickBy.get(r.id);
       return {
-        id: r.id, relPath: r.relPath, stage: r.stage, kind: r.kind, width: r.width, height: r.height, section: r.section, hasDraft: !!r.draftRelPath, previewReady: r.width !== null, v: previewVersion(r),
+        id: r.id, relPath: r.relPath, stage: r.stage, kind: r.kind, width: r.width, height: r.height, section: r.section, hasDraft: !!r.draftRelPath, previewReady: r.width !== null, purged: !!r.purgedAt, v: previewVersion(r),
         pick: k ? { state: k.state, byEmail: k.byEmail, locked: k.round < p.currentRound } : null, comments: cc[r.id] ?? { open: 0, total: 0 },
       };
     }));
