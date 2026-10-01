@@ -1,26 +1,29 @@
 import { serve } from '@hono/node-server';
 import { loadConfig } from './config.js';
-import { openDb } from './db/client.js';
+import { openRuntime } from './runtime.js';
 import { createApp } from './app.js';
 import { createAuth } from './auth/better.js';
 import { startWorker } from './jobs/worker.js';
+import { makeWaker, pendingHeavy } from './jobs/wake.js';
 import { makeEmailHandlers } from './email/send.js';
 import { smtpTransport } from './email/transport.js';
-import { memoryStorage, r2Storage } from './storage.js';
 import { makePreviewHandlers } from './domain/photos.js';
 import { sweepUnconfirmedStudios } from './auth/signup.js';
 import { makeSignInHandlers } from './auth/signin.js';
 
 async function main() {
   const config = loadConfig(process.env);
-  const { db, close } = await openDb(config.databaseUrl, { migrate: config.databaseUrl.startsWith('pglite:') }); // Postgres migrates in the release step
-  if (!config.r2) console.warn('[boot] R2 not configured: photos are kept in memory and lost on restart (local dev only)');
+  const { db, close, storage } = await openRuntime(config);
   if (!config.smtpUrl) console.warn('[boot] SMTP_URL not set: emails stay queued until it is');
-  const storage = config.r2 ? r2Storage(config.r2) : memoryStorage();
   const transport = config.smtpUrl ? smtpTransport(config.smtpUrl, config.emailFrom) : null;
   const auth = createAuth({ root: db, config, getTransport: () => transport });
-  const handlers = { ...makeEmailHandlers(() => transport, new URL(config.baseUrl).hostname), ...makePreviewHandlers(storage), ...makeSignInHandlers(auth, config) };
-  const stopWorker = startWorker(db, handlers, { intervalMs: 2000 });
+  const light = { ...makeEmailHandlers(() => transport, new URL(config.baseUrl).hostname), ...makeSignInHandlers(auth, config) };
+  // Remote: heavy jobs run on the Fly worker machine, which this machine starts when they are pending. Local: this machine runs everything.
+  // Either way it claims exactly the kinds it has handlers for.
+  const remote = config.processing.mode === 'remote' ? makeWaker(config.processing) : null;
+  const handlers = remote ? light : { ...light, ...makePreviewHandlers(storage) };
+  const onTick = remote ? async () => { if (await pendingHeavy(db, Date.now())) await remote(); } : undefined;
+  const stopWorker = startWorker(db, handlers, { intervalMs: 2000, kinds: Object.keys(handlers), onTick });
   const sweep = () => void sweepUnconfirmedStudios(db).then((n) => n && console.log(`[sweep] removed ${n} unconfirmed studios`)).catch((e) => console.error('[sweep]', e));
   const sweeper = setInterval(sweep, 3600_000); sweep();
   const server = serve({ fetch: createApp({ db, config, storage, auth }).fetch, port: config.port }, () => console.log(`[boot] listening on ${config.port}`));

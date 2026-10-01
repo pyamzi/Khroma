@@ -45,4 +45,11 @@ describe('loadConfig', () => {
     expect(c.betterAuthUrl).toBe('http://localhost:3000');
     expect(loadConfig({ ...base, BETTER_AUTH_SECRET: 'y'.repeat(40), BETTER_AUTH_URL: 'https://auth.example' })).toMatchObject({ betterAuthSecret: 'y'.repeat(40), betterAuthUrl: 'https://auth.example' });
   });
+  it('remote processing needs both FLY_API_TOKEN and FLY_APP_NAME', () => {
+    expect(loadConfig(prod).processing).toEqual({ mode: 'local' });
+    expect(loadConfig({ ...prod, FLY_API_TOKEN: 'tok' }).processing).toEqual({ mode: 'local' });
+    expect(loadConfig({ ...prod, FLY_APP_NAME: 'og' }).processing).toEqual({ mode: 'local' }); // Fly sets the name on every machine
+    expect(loadConfig({ ...prod, FLY_API_TOKEN: 'tok', FLY_APP_NAME: 'og' }).processing).toEqual({ mode: 'remote', appName: 'og', token: 'tok' });
+    expect(loadConfig({ ...base, FLY_API_TOKEN: ' tok\n', FLY_APP_NAME: 'og' }).processing).toMatchObject({ mode: 'remote', token: 'tok' });
+  });
 });

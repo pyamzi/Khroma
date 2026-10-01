@@ -10,6 +10,7 @@ const Env = z.object({
   EMAIL_FROM: z.string().email().optional(),
   BETTER_AUTH_SECRET: z.string().optional(),
   BETTER_AUTH_URL: z.string().url().optional(),
+  FLY_API_TOKEN: z.string().trim().min(1).optional(), FLY_APP_NAME: z.string().trim().min(1).optional(), // Fly sets the app name on every machine; the token is a secret
   NODE_ENV: z.string().optional(),
   R2_ACCOUNT_ID: z.string().min(1).optional(), R2_ACCESS_KEY_ID: z.string().min(1).optional(), R2_SECRET_ACCESS_KEY: z.string().min(1).optional(), R2_BUCKET: z.string().min(1).optional(),
 });
@@ -19,6 +20,8 @@ const DEV_AUTH_SECRET = 'opengallery-dev-only-auth-secret-0123456789'; // 32+ ch
 export type Config = {
   databaseUrl: string; baseUrl: string; port: number; smtpUrl?: string; emailFrom: string; production: boolean;
   betterAuthSecret: string; betterAuthUrl: string;
+  /** `remote`: heavy jobs run on the Fly `worker` machine, which the app starts through the Machines API. `local`: the app runs everything itself (tests, local dev). */
+  processing: { mode: 'local' } | { mode: 'remote'; appName: string; token: string };
   r2?: { accountId: string; accessKeyId: string; secretAccessKey: string; bucket: string };
 };
 
@@ -36,6 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
   if (production && (new URL(betterAuthUrl).origin !== new URL(baseUrl).origin || !baseUrl.startsWith('https://'))) throw new Error('BETTER_AUTH_URL must be the https origin of BASE_URL in production'); // sign-in links would point elsewhere
   return {
     databaseUrl: e.DATABASE_URL, baseUrl, port: e.PORT, smtpUrl, emailFrom: e.EMAIL_FROM ?? `no-reply@${new URL(baseUrl).hostname}`,
+    processing: e.FLY_API_TOKEN && e.FLY_APP_NAME ? { mode: 'remote', appName: e.FLY_APP_NAME, token: e.FLY_API_TOKEN } : { mode: 'local' },
     production, betterAuthSecret: e.BETTER_AUTH_SECRET || DEV_AUTH_SECRET, betterAuthUrl,
     r2: setR2.length ? { accountId: e.R2_ACCOUNT_ID!, accessKeyId: e.R2_ACCESS_KEY_ID!, secretAccessKey: e.R2_SECRET_ACCESS_KEY!, bucket: e.R2_BUCKET! } : undefined,
   };

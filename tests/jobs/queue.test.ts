@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { jobs, clients } from '../../src/server/db/schema.js';
 import { withStudio, asSystem } from '../../src/server/db/tenancy.js';
 import type { Db } from '../../src/server/db/client.js';
-import { enqueue, runOnce, recoverLeases, claimNext, retryJob, NeedsReview, BACKOFF_MS } from '../../src/server/jobs/queue.js';
+import { enqueue, runOnce, recoverLeases, claimNext, retryJob, NeedsReview, BACKOFF_MS, HEAVY_KINDS } from '../../src/server/jobs/queue.js';
+import { startWorker } from '../../src/server/jobs/worker.js';
 import { testDb, makeStudio } from '../helpers.js';
 
 const T0 = 1_700_000_000_000;
@@ -60,7 +61,7 @@ describe('jobs', () => {
   });
   it('recovers expired leases after a crash', async () => {
     const { db, as } = await fresh(); const { id } = await as((tx) => enqueue(tx, { kind: 'x', payload: {}, now: T0 }));
-    expect((await claimNext(db, T0, 1000))?.id).toBe(id);
+    expect((await claimNext(db, T0, undefined, 1000))?.id).toBe(id);
     expect(await claimNext(db, T0 + 500)).toBeNull();
     expect(await recoverLeases(db, T0 + 500)).toBe(0);
     expect(await recoverLeases(db, T0 + 2000)).toBe(1);
@@ -125,5 +126,40 @@ describe('jobs across Studios', () => {
     const { db, as } = await fresh(); await as((tx) => enqueue(tx, { kind: 'w', payload: {}, now: T0 }));
     await runOnce(db, { w: async (_p, ctx) => { await ctx.db.insert(clients).values({ id: 'c', name: 'n', emails: [] }); throw new Error('after write'); } }, T0);
     expect(await as((tx) => tx.select().from(clients))).toEqual([]);
+  });
+  it('claimNext only claims the requested kinds', async () => {
+    const { db, as } = await fresh();
+    await as((tx) => enqueue(tx, { kind: 'process_upload', payload: {}, now: T0 }));
+    await as((tx) => enqueue(tx, { kind: 'send_email', payload: {}, now: T0 + 1 }));
+    expect((await claimNext(db, T0 + 1, ['send_email']))?.kind).toBe('send_email');
+    expect(await claimNext(db, T0 + 1, ['send_email'])).toBeNull();
+    expect((await allJobs(db)).find((j) => j.kind === 'process_upload')!.state).toBe('pending');
+  });
+  it('runOnce leaves kinds it was not asked to claim alone, even with no handler', async () => {
+    const { db, as } = await fresh(); await as((tx) => enqueue(tx, { kind: 'build_zip', payload: {}, now: T0 }));
+    expect(await runOnce(db, {}, T0, ['send_email'])).toBe('idle');
+    expect((await oneJob(db)).state).toBe('pending');
+  });
+  it('HEAVY_KINDS lists the jobs that run on the processing machine', () => { expect([...HEAVY_KINDS]).toEqual(['process_upload', 'preview', 'build_zip']); });
+  it('an idle worker exits after exitWhenIdleMs', async () => {
+    const { db } = await fresh(); let exits = 0;
+    const stop = startWorker(db, {}, { intervalMs: 10, exitWhenIdleMs: 50, onIdleExit: () => { exits++; } });
+    await new Promise((r) => setTimeout(r, 300)); stop();
+    expect(exits).toBe(1);
+  });
+  it('a busy worker does not exit and onTick runs before each pass', async () => {
+    const { db, as } = await fresh(); let exits = 0, ticks = 0, ran = 0;
+    const stop = startWorker(db, { echo: async () => { ran++; } }, { intervalMs: 10, exitWhenIdleMs: 150, kinds: ['echo'], onIdleExit: () => { exits++; }, onTick: async () => { ticks++; } });
+    for (let i = 0; i < 5; i++) { await as((tx) => enqueue(tx, { kind: 'echo', payload: {} })); await new Promise((r) => setTimeout(r, 40)); }
+    stop();
+    expect(ran).toBe(5); expect(exits).toBe(0); expect(ticks).toBeGreaterThan(5);
+  });
+  it('a failing onTick does not stop jobs from running', async () => {
+    const { db, as } = await fresh(); let ran = 0;
+    await as((tx) => enqueue(tx, { kind: 'echo', payload: {} }));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const stop = startWorker(db, { echo: async () => { ran++; } }, { intervalMs: 10, kinds: ['echo'], onTick: async () => { throw new Error('wake failed'); } });
+    await vi.waitFor(() => expect(ran).toBe(1)); stop();
+    expect(err).toHaveBeenCalled(); err.mockRestore();
   });
 });

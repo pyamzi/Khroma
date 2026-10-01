@@ -4,8 +4,15 @@ primary_region = "ord" # Chicago: closest to Madison and to Neon aws-us-east-2
 [deploy]
   release_command = "npm run migrate"
 
+# `app` serves HTTP and runs light jobs. `worker` is the processing machine for heavy image jobs: the app starts it
+# through the Machines API (FLY_API_TOKEN secret) when heavy jobs are pending, and it exits after 60 idle seconds.
+[processes]
+  app = "node dist/server/index.js"
+  worker = "node dist/server/worker.js"
+
 [http_service]
   internal_port = 3000
+  processes = ["app"]
   force_https = true
   auto_stop_machines = "off"
   auto_start_machines = true
@@ -19,5 +26,16 @@ primary_region = "ord" # Chicago: closest to Madison and to Neon aws-us-east-2
     timeout = "5s"
 
 [[vm]]
+  processes = ["app"]
   size = "shared-cpu-1x"
   memory = "2gb"
+
+[[vm]]
+  processes = ["worker"]
+  size = "shared-cpu-2x"
+  memory = "2gb"
+
+# An idle exit must stay stopped until the app starts the machine again.
+[[restart]]
+  policy = "never"
+  processes = ["worker"]

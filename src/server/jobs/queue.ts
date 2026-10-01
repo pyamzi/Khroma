@@ -1,4 +1,4 @@
-import { and, eq, lte, or, isNull, lt } from 'drizzle-orm';
+import { and, eq, lte, or, isNull, lt, inArray } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { jobs } from '../db/schema.js';
 import { asSystem, withStudio } from '../db/tenancy.js';
@@ -14,6 +14,8 @@ export type Handlers = Record<string, Handler | SystemHandler>;
 export type JobRow = typeof jobs.$inferSelect;
 export const BACKOFF_MS = [60_000, 300_000, 1_800_000] as const;
 export const MAX_ATTEMPTS = 3;
+/** Jobs that need the processing machine's CPU and memory (image work, zips). Everything else is light and runs on the app machine. */
+export const HEAVY_KINDS = ['process_upload', 'preview', 'build_zip'] as const;
 
 /**
  * Commit locally first; the worker makes the outside call. A duplicate key (per Studio) returns the existing job.
@@ -29,11 +31,11 @@ export async function enqueue(db: Db, o: { kind: string; payload: unknown; idemp
   return { id: existing!.id, created: false };
 }
 
-/** Leases the next due job of any Studio. Concurrent workers skip each other's rows. */
-export function claimNext(root: Db, now: number, leaseMs = 60_000): Promise<JobRow | null> {
+/** Leases the next due job of any Studio (of the given `kinds`, when set). Concurrent workers skip each other's rows. */
+export function claimNext(root: Db, now: number, kinds?: readonly string[], leaseMs = 60_000): Promise<JobRow | null> {
   return asSystem(root, async (tx) => {
     const [row] = await tx.select().from(jobs)
-      .where(and(eq(jobs.state, 'pending'), lte(jobs.nextAt, now), or(isNull(jobs.leasedUntil), lt(jobs.leasedUntil, now))))
+      .where(and(eq(jobs.state, 'pending'), lte(jobs.nextAt, now), or(isNull(jobs.leasedUntil), lt(jobs.leasedUntil, now)), kinds ? inArray(jobs.kind, [...kinds]) : undefined))
       .orderBy(jobs.nextAt).limit(1).for('update', { skipLocked: true });
     if (!row) return null;
     await tx.update(jobs).set({ state: 'running', leasedUntil: now + leaseMs, attempts: row.attempts + 1 }).where(eq(jobs.id, row.id));
@@ -42,8 +44,9 @@ export function claimNext(root: Db, now: number, leaseMs = 60_000): Promise<JobR
 }
 
 // ponytail: the handler's transaction stays open across its external call (email, render); split into short transactions if job volume grows.
-export async function runOnce(root: Db, handlers: Handlers, now = Date.now()): Promise<'ran' | 'idle'> {
-  const job = await claimNext(root, now); if (!job) return 'idle';
+// A machine must only claim kinds it has handlers for: a missing handler parks the job in needs_review, which would strand work meant for the other machine.
+export async function runOnce(root: Db, handlers: Handlers, now = Date.now(), kinds?: readonly string[]): Promise<'ran' | 'idle'> {
+  const job = await claimNext(root, now, kinds); if (!job) return 'idle';
   const handler = handlers[job.kind];
   try {
     if (!handler) throw new NeedsReview(`no handler for kind ${job.kind}`);
