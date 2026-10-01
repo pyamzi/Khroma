@@ -113,6 +113,16 @@ describe('publishFinals', () => {
     expect((await db.select().from(photos).where(eq(photos.id, f)))[0]!.live).toBe(false);
   });
 
+  it('a batch with a live replacement and an unrendered draft is invalid and leaves the replacement\'s live objects untouched', async () => {
+    const { storage, studioId, src, src2, draft, pub, text } = await seed();
+    const a = await draft('A.jpg', src, '#c33'); await pub([a]);
+    const liveOriginal = await storage.getBytes(photoKey(studioId, a, 'original')); const livePreview = await text(a, 'preview');
+    await draft('A.jpg', src, '#33c'); // replacement of the live A, fully rendered
+    const b = await draft('B.jpg', src2, '#3c3'); await storage.delete(photoKey(studioId, b, 'preview.draft')); // B's render has not finished
+    expect(await code(pub([a, b]))).toBe('invalid');
+    expect(await storage.getBytes(photoKey(studioId, a, 'original'))).toEqual(liveOriginal); expect(await text(a, 'preview')).toBe(livePreview);
+  });
+
   it('refuses a draft whose previews are not rendered yet', async () => {
     const { db, src, draft, pub, storage, studioId } = await seed();
     const f = await draft('A.jpg', src); await storage.delete(photoKey(studioId, f, 'thumb.draft'));

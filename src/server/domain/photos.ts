@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import type { Db } from '../db/client.js';
@@ -52,6 +53,9 @@ export async function addCullingPreview(db: Db, storage: Storage, o: { projectId
   await enqueue(db, { kind: 'preview', payload: { photoId: ex.id }, idempotencyKey: `preview:${ex.id}:${checksum}:${newId()}` }); // unique: reverting to earlier bytes (A, B, A) must still re-render; identical bytes returned above
   return { photoId: ex.id, created: false, replaced: true };
 }
+/** Changes whenever the live rendition changes (a replacement's checksum lands at upload, so publishing also moves `readyAt`), so cached preview URLs never go stale. */
+export const previewVersion = (r: { checksum: string; readyAt: string | null }) => createHash('sha1').update(`${r.checksum}|${r.readyAt ?? ''}`).digest('hex').slice(0, 12);
+
 const TYPES: Record<string, string> = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', mp4: 'video/mp4', mov: 'video/quicktime' };
 export const contentType = (_name: string, format: string) => TYPES[format] ?? 'application/octet-stream';
 

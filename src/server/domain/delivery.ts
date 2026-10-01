@@ -15,15 +15,18 @@ export class DeliveryError extends Error {
 const PAIRS: [PhotoVariant, PhotoVariant][] = [['preview.draft', 'preview'], ['medium.draft', 'medium'], ['thumb.draft', 'thumb'], ['draft', 'original']];
 const DRAFTS: PhotoVariant[] = ['draft', 'preview.draft', 'medium.draft', 'thumb.draft'];
 
-/** Run `fn` over `items` with at most `n` in flight; the first failure rejects. */
+/** Run `fn` over `items` with at most `n` in flight; after the first failure no new item starts and it rejects. */
 async function pool<T>(items: T[], n: number, fn: (x: T) => Promise<void>): Promise<void> {
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) await fn(items[i++]!); }));
+  let i = 0; let failed = false;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (!failed && i < items.length) { try { await fn(items[i++]!); } catch (e) { failed = true; throw e; } }
+  }));
 }
 
 /**
  * Light job handler: deletes the given objects, missing ones included, so a retry is safe.
  * A replacement uploaded after the publish reuses the same draft keys, so draft objects of a photo that has a draft again are left alone.
+ * ponytail: a retried job can still delete a live `medium` that a later publish just copied; the job only retries after an R2 failure, so the window is narrow. Close it by versioning keys if it ever bites.
  */
 export function makeDeliveryHandlers(storage: Storage): Handlers {
   return {
@@ -54,9 +57,10 @@ export function publishFinals(db: Db, storage: Storage, o: { projectId: string; 
     if (!ids.length || rows.length !== ids.length || rows.some((p) => !p.draftRelPath)) throw new DeliveryError('invalid');
     const key = (id: string, v: PhotoVariant) => photoKey(r.studioId, id, v);
     // a draft whose previews have not rendered yet would go live without them
+    // validate every draft before copying any: a rejected batch must leave every live object untouched
+    await pool(rows, 8, async (p) => { for (const v of ['draft', 'preview.draft', 'thumb.draft'] as const) if (!(await storage.exists(key(p.id, v)))) throw new DeliveryError('invalid'); });
     const stale: string[] = []; // live objects with no draft counterpart
     await pool(rows, 8, async (p) => {
-      for (const v of ['draft', 'preview.draft', 'thumb.draft'] as const) if (!(await storage.exists(key(p.id, v)))) throw new DeliveryError('invalid');
       for (const [from, to] of PAIRS) {
         if (from === 'medium.draft' && !(await storage.exists(key(p.id, from)))) { stale.push(key(p.id, to)); continue; } // finals rendered before the medium size existed: drop the old medium so the route falls back to the new preview
         await storage.copy(key(p.id, from), key(p.id, to));
