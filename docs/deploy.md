@@ -45,6 +45,29 @@ rollback;
 
 Better Auth's tables (`auth_*`) are not visible to the app's tenant roles, and `npm run check:tenancy` checks that.
 
+## Library and uploads (H2)
+
+Photos upload straight from the browser to R2 with presigned URLs, and a separate `worker` machine converts and resizes them. The `app` machine wakes the worker through the Fly Machines API when heavy jobs are waiting, and the worker stops itself after 60 idle seconds.
+
+One-time setup:
+
+1. **Fly token**: `fly tokens create deploy -a opengallery`, then `fly secrets set -a opengallery --stage FLY_API_TOKEN='…'`. Fly sets `FLY_APP_NAME` on every machine. Without the token, the app runs heavy jobs itself (local mode), which is fine for development but slow in production.
+2. **R2 CORS** (browsers PUT to the bucket): `npx wrangler r2 bucket cors set opengallery-media --file deploy/r2-cors.json`. Every public origin of the app must be listed in that file.
+3. **ZIP expiry**: `npx wrangler r2 bucket lifecycle add opengallery-media zips z/ --expire-days 7`. Gallery ZIPs are rebuilt on demand, so old ones can expire.
+
+After the deploy, `fly status -a opengallery` shows one started `app` machine and one `worker` machine. The worker machine stops about a minute after its last job; that is expected. Its `[[restart]] policy = "never"` keeps it stopped until the app starts it again.
+
+To see where uploads stand (in the Neon SQL editor):
+
+```sql
+begin; set local role og_system;
+select status, count(*) from photos where in_library group by status;
+select kind, status, count(*) from jobs where kind in ('process_upload','build_zip') group by 1, 2;
+rollback;
+```
+
+Uploads that stay `processing` for over an hour with no live job are marked `failed` by the hourly sweep. Culling previews are deleted from R2 30 days after the Client finished picking, once a day.
+
 ## Everyday deploys
 
 Run `fly deploy`. Migrations run first; a failed migration aborts the release, and the old machines keep serving.

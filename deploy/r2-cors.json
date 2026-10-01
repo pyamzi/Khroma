@@ -2,9 +2,19 @@
   "rules": [
     {
       "allowed": {
-        "origins": ["https://opengallery.fly.dev", "http://localhost:3000"],
-        "methods": ["PUT", "GET"],
-        "headers": ["content-type"]
+        "origins": [
+          "https://opengallery.dev",
+          "https://www.opengallery.dev",
+          "https://opengallery.fly.dev",
+          "http://localhost:3000"
+        ],
+        "methods": [
+          "PUT",
+          "GET"
+        ],
+        "headers": [
+          "content-type"
+        ]
       },
       "maxAgeSeconds": 3600
     }
