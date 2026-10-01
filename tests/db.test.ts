@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { invoices, projects, clients, jobs } from '../src/server/db/schema.js';
+import { invoices, projects, clients, jobs, authUsers } from '../src/server/db/schema.js';
 import { getSetting, setSetting } from '../src/server/db/settings.js';
-import { withStudio } from '../src/server/db/tenancy.js';
+import { withStudio, asSystem } from '../src/server/db/tenancy.js';
 import { join } from 'node:path';
 import { openDb } from '../src/server/db/client.js';
 import { checkTenancy } from '../src/server/db/check.js';
@@ -26,6 +26,11 @@ describe('database', () => {
     const err = await withStudio(db, a.studioId, (tx) => tx.insert(jobs).values({ id: 'j2', kind: 'x', payload: {}, idempotencyKey: 'k', nextAt: 0 })).catch((e: unknown) => e);
     expect(pgCode(err)).toBe('23505');
     await withStudio(db, b.studioId, (tx) => tx.insert(jobs).values({ id: 'j3', kind: 'x', payload: {}, idempotencyKey: 'k', nextAt: 0 }));
+  });
+  it('denies Studio and system transactions every auth table', async () => {
+    const db = await testDb(); const { studioId } = await makeStudio(db);
+    expect(await pgFail(withStudio(db, studioId, (tx) => tx.select().from(authUsers)))).toMatch(/permission denied/);
+    expect(await pgFail(asSystem(db, (tx) => tx.select().from(authUsers)))).toMatch(/permission denied/);
   });
   it('rejects a project whose client does not exist', async () => {
     const db = await testDb(); const { studioId } = await makeStudio(db);

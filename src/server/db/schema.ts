@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, jsonb, doublePrecision, bigint, serial, uniqueIndex, index, primaryKey, unique, foreignKey } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, boolean, timestamp, jsonb, doublePrecision, bigint, serial, uniqueIndex, index, primaryKey, unique, foreignKey } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 const now = () => sql`to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
@@ -195,3 +195,55 @@ export const settings = pgTable('settings', {
   key: text('key').notNull(),
   value: jsonb('value').$type<unknown>().notNull(),
 }, (t) => [primaryKey({ columns: [t.studioId, t.key] })]);
+
+/**
+ * Better Auth's core tables (columns from `npx auth generate`, better-auth 1.7.x). Not tenant tables: no RLS, and 0002_auth.sql
+ * revokes them from og_app and og_system, so only the table-owner connection (the auth handler) can read them. checkTenancy enforces that.
+ */
+export const authUsers = pgTable('auth_users', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: boolean('email_verified').default(false).notNull(),
+  image: text('image'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
+});
+
+export const authSessions = pgTable('auth_sessions', {
+  id: text('id').primaryKey(),
+  expiresAt: timestamp('expires_at').notNull(),
+  token: text('token').notNull().unique(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').$onUpdate(() => new Date()).notNull(),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  userId: text('user_id').notNull().references(() => authUsers.id, { onDelete: 'cascade' }),
+  studioId: text('studio_id').references(() => studios.id, { onDelete: 'cascade' }), // nullable and not RLS-scoped on purpose: see above
+  kind: text('kind', { enum: ['admin', 'client'] }),
+}, (t) => [index('auth_sessions_user_id_idx').on(t.userId)]);
+
+export const authAccounts = pgTable('auth_accounts', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id').notNull(),
+  providerId: text('provider_id').notNull(),
+  userId: text('user_id').notNull().references(() => authUsers.id, { onDelete: 'cascade' }),
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  idToken: text('id_token'),
+  accessTokenExpiresAt: timestamp('access_token_expires_at'),
+  refreshTokenExpiresAt: timestamp('refresh_token_expires_at'),
+  scope: text('scope'),
+  password: text('password'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').$onUpdate(() => new Date()).notNull(),
+}, (t) => [index('auth_accounts_user_id_idx').on(t.userId)]);
+
+export const authVerifications = pgTable('auth_verifications', {
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull(),
+  value: text('value').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
+}, (t) => [index('auth_verifications_identifier_idx').on(t.identifier)]);

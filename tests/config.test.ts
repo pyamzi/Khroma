@@ -3,7 +3,7 @@ import { loadConfig } from '../src/server/config.js';
 
 const base = { DATABASE_URL: 'pglite://memory', BASE_URL: 'https://og.example' };
 const r2 = { R2_ACCOUNT_ID: 'acc', R2_ACCESS_KEY_ID: 'ak', R2_SECRET_ACCESS_KEY: 'sk', R2_BUCKET: 'b' };
-const prod = { ...base, NODE_ENV: 'production', DATABASE_URL: 'postgres://u:p@h/db', SMTP_URL: 'smtp://u:p@h:587', ...r2 };
+const prod = { ...base, NODE_ENV: 'production', DATABASE_URL: 'postgres://u:p@h/db', SMTP_URL: 'smtp://u:p@h:587', BETTER_AUTH_SECRET: 'p'.repeat(40), ...r2 };
 
 describe('loadConfig', () => {
   it('parses required values and defaults', () => {
@@ -27,5 +27,16 @@ describe('loadConfig', () => {
   it('RESEND_API_KEY alone is enough for email (pasted key may carry whitespace)', () => {
     const c = loadConfig({ ...prod, SMTP_URL: undefined, RESEND_API_KEY: ' re_abc_123\n' });
     expect(c.smtpUrl).toBe('smtp://resend:re_abc_123@smtp.resend.com:587');
+  });
+  it('production needs a 32-character BETTER_AUTH_SECRET', () => {
+    expect(() => loadConfig({ ...prod, BETTER_AUTH_SECRET: 'short' })).toThrow(/BETTER_AUTH_SECRET is required in production/);
+    expect(() => loadConfig({ ...prod, BETTER_AUTH_SECRET: undefined })).toThrow(/BETTER_AUTH_SECRET is required in production/);
+    expect(loadConfig({ ...prod, BETTER_AUTH_SECRET: 'x'.repeat(32) }).betterAuthUrl).toBe('https://og.example');
+  });
+  it('dev and tests default to a fixed 32+ character secret and the base url', () => {
+    const c = loadConfig({ ...base, BASE_URL: 'http://localhost:3000/' });
+    expect(c.betterAuthSecret.length).toBeGreaterThanOrEqual(32);
+    expect(c.betterAuthUrl).toBe('http://localhost:3000');
+    expect(loadConfig({ ...base, BETTER_AUTH_SECRET: 'y'.repeat(40), BETTER_AUTH_URL: 'https://auth.example' })).toMatchObject({ betterAuthSecret: 'y'.repeat(40), betterAuthUrl: 'https://auth.example' });
   });
 });

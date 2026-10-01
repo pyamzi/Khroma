@@ -26,4 +26,13 @@ describe('checkTenancy', () => {
     await db.execute(sql`drop index users_studio`);
     expect(await checkTenancy(db)).toEqual(['users: no index led by studio_id']);
   });
+  it('tenant roles cannot touch auth tables', async () => {
+    const db = await testDb();
+    expect(await checkTenancy(db)).toEqual([]);
+    await db.execute(sql`grant select on auth_sessions to og_app`);
+    expect(await checkTenancy(db)).toContain('og_app can read auth_sessions');
+    await db.execute(sql`revoke select on auth_sessions from og_app`);
+    await db.execute(sql`grant select on auth_users to og_system`);
+    expect(await checkTenancy(db)).toEqual(['og_system can read auth_users']);
+  });
 });
