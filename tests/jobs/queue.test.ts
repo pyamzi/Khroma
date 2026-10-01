@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { jobs, clients } from '../../src/server/db/schema.js';
 import { withStudio, asSystem } from '../../src/server/db/tenancy.js';
 import type { Db } from '../../src/server/db/client.js';
@@ -101,6 +101,21 @@ describe('jobs across Studios', () => {
     let seen: { studioId: string; names: string[] } | undefined;
     await runOnce(db, { look: async (_p, ctx) => { seen = { studioId: ctx.studioId, names: (await ctx.db.select().from(clients)).map((c) => c.name) }; } }, T0);
     expect(seen).toEqual({ studioId: a.studioId, names: ['A'] });
+  });
+  it('a system handler runs outside any transaction and its job ends done', async () => {
+    const { db, studioId, as } = await fresh(); const { id } = await as((tx) => enqueue(tx, { kind: 'sys', payload: { v: 1 }, now: T0 }));
+    let seen: unknown;
+    await runOnce(db, { sys: { system: true, run: async (p, ctx) => {
+      const res = await ctx.root.execute<{ role: string; open: boolean }>(sql`select current_user as role, now() = statement_timestamp() as open`);
+      seen = { p, root: ctx.root === db, jobId: ctx.jobId, studioId: ctx.studioId, row: ('rows' in res ? res.rows : res)[0] };
+    } } }, T0);
+    expect(seen).toEqual({ p: { v: 1 }, root: true, jobId: id, studioId, row: { role: 'postgres', open: true } }); // no og_* role, no transaction start time
+    expect((await oneJob(db)).state).toBe('done');
+  });
+  it('a failing system handler backs off like any other', async () => {
+    const { db, as } = await fresh(); await as((tx) => enqueue(tx, { kind: 'sys', payload: {}, now: T0 }));
+    await runOnce(db, { sys: { system: true, run: async () => { throw new Error('smtp down'); } } }, T0);
+    expect(await oneJob(db)).toMatchObject({ state: 'pending', attempts: 1, nextAt: T0 + BACKOFF_MS[0]!, lastError: 'Error: smtp down' });
   });
   it('a failed handler\'s writes roll back', async () => {
     const { db, as } = await fresh(); await as((tx) => enqueue(tx, { kind: 'w', payload: {}, now: T0 }));

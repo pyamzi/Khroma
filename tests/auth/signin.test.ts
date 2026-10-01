@@ -2,43 +2,61 @@ import { describe, it, expect } from 'vitest';
 import { clients, jobs } from '../../src/server/db/schema.js';
 import { asSystem, withStudio } from '../../src/server/db/tenancy.js';
 import { requestSignIn } from '../../src/server/auth/signin.js';
-import { redeemMagicLink } from '../../src/server/auth/magic.js';
-import { testDb, makeStudio } from '../helpers.js';
-import { queuedMail } from './mail.js';
+import { runOnce } from '../../src/server/jobs/queue.js';
+import { makeStudio } from '../helpers.js';
+import { boot } from '../http/boot.js';
 
-const base = 'https://og.example';
+type S = Awaited<ReturnType<typeof boot>>;
+const request = (s: S, email: string) => asSystem(s.db, (tx) => requestSignIn(tx, { email, baseUrl: s.config.baseUrl }));
+const me = async (s: S, cookie: string) => s.json<{ kind: string; studio: { id: string } }>(await s.api('/api/me', { cookie }));
 
 describe('sign-in across Studios', () => {
   it('one email, owner in A and client in B: two links, each session in its own Studio', async () => {
-    const db = await testDb(); const a = await makeStudio(db, { name: 'A Studio', ownerEmail: 'sam@x.com' }); const b = await makeStudio(db, { name: 'B Studio' });
-    await withStudio(db, b.studioId, (tx) => tx.insert(clients).values({ id: 'cb', name: 'Sam', emails: ['sam@x.com'] }));
-    expect(await asSystem(db, (tx) => requestSignIn(tx, { email: 'Sam@X.com', baseUrl: base }))).toBe(2);
-    const mail = await queuedMail(db);
-    expect(mail.map((m) => [m.studioId, m.to, m.vars.studio]).sort()).toEqual([[a.studioId, 'sam@x.com', 'A Studio'], [b.studioId, 'sam@x.com', 'B Studio']].sort());
-    const sessions = await Promise.all(mail.map((m) => asSystem(db, (tx) => redeemMagicLink(tx, m.token!))));
-    expect(sessions.map((s) => [s!.session.studioId, s!.session.kind]).sort()).toEqual([[a.studioId, 'admin'], [b.studioId, 'client']].sort());
+    const s = await boot(); const a = await makeStudio(s.db, { name: 'A Studio', ownerEmail: 'sam@x.com' }); const b = await makeStudio(s.db, { name: 'B Studio' });
+    await withStudio(s.db, b.studioId, (tx) => tx.insert(clients).values({ id: 'cb', name: 'Sam', emails: ['sam@x.com'] }));
+    expect(await request(s, 'Sam@X.com')).toBe(2);
+    await s.drain();
+    expect(s.mail.sent.map((m) => [m.to, m.fromName, m.subject]).sort()).toEqual([['sam@x.com', 'A Studio', 'Sign in to A Studio'], ['sam@x.com', 'B Studio', 'Sign in to B Studio']]);
+    expect(await me(s, await s.redeemLatest('sam@x.com', 'A Studio'))).toMatchObject({ kind: 'admin', studio: { id: a.studioId } });
+    expect(await me(s, await s.redeemLatest('sam@x.com', 'B Studio'))).toMatchObject({ kind: 'client', studio: { id: b.studioId } });
   });
   it('an unknown email gets nothing', async () => {
-    const db = await testDb(); await makeStudio(db);
-    expect(await asSystem(db, (tx) => requestSignIn(tx, { email: 'nobody@x.com', baseUrl: base }))).toBe(0);
-    expect(await queuedMail(db)).toEqual([]);
+    const s = await boot(); await makeStudio(s.db);
+    expect(await request(s, 'nobody@x.com')).toBe(0);
+    await s.drain(); expect(s.mail.sent).toEqual([]);
   });
   it('an owner who is also a client in the same Studio gets one admin link', async () => {
-    const db = await testDb(); const a = await makeStudio(db, { ownerEmail: 'o@x.com' });
-    await withStudio(db, a.studioId, (tx) => tx.insert(clients).values({ id: 'c', name: 'O', emails: ['o@x.com'] }));
-    expect(await asSystem(db, (tx) => requestSignIn(tx, { email: 'o@x.com', baseUrl: base }))).toBe(1);
-    const [m] = await queuedMail(db);
-    expect((await asSystem(db, (tx) => redeemMagicLink(tx, m!.token!)))!.session.kind).toBe('admin');
+    const s = await boot(); const a = await makeStudio(s.db, { ownerEmail: 'o@x.com' });
+    await withStudio(s.db, a.studioId, (tx) => tx.insert(clients).values({ id: 'c', name: 'O', emails: ['o@x.com'] }));
+    expect(await request(s, 'o@x.com')).toBe(1);
+    await s.drain(); expect(s.mail.sent).toHaveLength(1);
+    expect((await me(s, await s.redeemLatest('o@x.com'))).kind).toBe('admin');
+  });
+  it('the email comes from the Studio, with its first owner as reply-to', async () => {
+    const s = await boot(); await makeStudio(s.db, { name: 'Lumen', ownerEmail: 'own@x.com' });
+    await request(s, 'own@x.com'); await s.drain();
+    expect(s.mail.sent[0]).toMatchObject({ to: 'own@x.com', fromName: 'Lumen', replyTo: 'own@x.com' });
   });
 });
 
 describe('sign-in tokens at rest', () => {
-  it('a queued sign-in email holds no token; the link is minted when the email is sent', async () => {
-    const db = await testDb(); await makeStudio(db, { ownerEmail: 'o@x.com' });
-    await asSystem(db, (tx) => requestSignIn(tx, { email: 'o@x.com', baseUrl: base }));
-    const [job] = await asSystem(db, (tx) => tx.select().from(jobs));
-    expect(JSON.stringify(job!.payload)).not.toMatch(/\/auth\//);
-    const [m] = await queuedMail(db);
-    expect((await asSystem(db, (tx) => redeemMagicLink(tx, m!.token!)))!.session.kind).toBe('admin');
+  it('no sign-in link or token is ever stored in jobs', async () => {
+    const s = await boot(); await makeStudio(s.db, { ownerEmail: 'o@x.com' });
+    await request(s, 'o@x.com');
+    const clean = async () => { for (const j of await asSystem(s.db, (tx) => tx.select().from(jobs))) expect(JSON.stringify(j.payload)).not.toMatch(/token|magic-link\/verify/i); };
+    await clean(); await s.drain(); await clean();
+    expect(s.mail.sent).toHaveLength(1); expect((await me(s, await s.redeemLatest('o@x.com'))).kind).toBe('admin');
+  });
+  it('a transport failure retries the job and the next attempt sends a fresh working link', async () => {
+    const s = await boot(); await makeStudio(s.db, { ownerEmail: 'o@x.com' });
+    const send = s.mail.send; s.mail.send = async () => { throw new Error('smtp down'); };
+    await request(s, 'o@x.com'); await s.drain();
+    const [failed] = await asSystem(s.db, (tx) => tx.select().from(jobs));
+    expect(failed).toMatchObject({ kind: 'send_magic_link', state: 'pending', attempts: 1 }); expect(failed!.lastError).toMatch(/smtp down/);
+    s.mail.send = send;
+    expect(await runOnce(s.db, s.handlers, failed!.nextAt)).toBe('ran');
+    expect((await asSystem(s.db, (tx) => tx.select().from(jobs)))[0]).toMatchObject({ state: 'done', attempts: 2 });
+    expect(s.mail.sent).toHaveLength(1);
+    expect((await me(s, await s.redeemLatest('o@x.com'))).kind).toBe('admin');
   });
 });

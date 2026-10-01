@@ -8,7 +8,9 @@ import { newId } from '../ids.js';
 export class NeedsReview extends Error { constructor(msg: string) { super(msg); this.name = 'NeedsReview'; } }
 /** Runs inside one transaction bound to the job's Studio; its writes roll back if it throws. */
 export type Handler = (payload: unknown, ctx: { db: Db; jobId: string; studioId: string }) => Promise<void>;
-export type Handlers = Record<string, Handler>;
+/** Runs on the pool outside any transaction, for work that opens its own (Better Auth's root-only tables); the job is marked done afterwards. */
+export type SystemHandler = { system: true; run: (payload: unknown, ctx: { root: Db; jobId: string; studioId: string }) => Promise<void> };
+export type Handlers = Record<string, Handler | SystemHandler>;
 export type JobRow = typeof jobs.$inferSelect;
 export const BACKOFF_MS = [60_000, 300_000, 1_800_000] as const;
 export const MAX_ATTEMPTS = 3;
@@ -45,10 +47,9 @@ export async function runOnce(root: Db, handlers: Handlers, now = Date.now()): P
   const handler = handlers[job.kind];
   try {
     if (!handler) throw new NeedsReview(`no handler for kind ${job.kind}`);
-    await withStudio(root, job.studioId, async (tx) => {
-      await handler(job.payload, { db: tx, jobId: job.id, studioId: job.studioId });
-      await tx.update(jobs).set({ state: 'done', leasedUntil: null, lastError: null }).where(eq(jobs.id, job.id));
-    });
+    const done = (tx: Db) => tx.update(jobs).set({ state: 'done', leasedUntil: null, lastError: null }).where(eq(jobs.id, job.id));
+    if (typeof handler === 'function') await withStudio(root, job.studioId, async (tx) => { await handler(job.payload, { db: tx, jobId: job.id, studioId: job.studioId }); await done(tx); });
+    else { await handler.run(job.payload, { root, jobId: job.id, studioId: job.studioId }); await asSystem(root, done); }
   } catch (e) {
     const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
     console.error(`[jobs] ${job.kind} ${job.id} failed (attempt ${job.attempts}): ${msg}`);

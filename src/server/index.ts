@@ -9,6 +9,7 @@ import { smtpTransport } from './email/transport.js';
 import { memoryStorage, r2Storage } from './storage.js';
 import { makePreviewHandlers } from './domain/photos.js';
 import { sweepUnconfirmedStudios } from './auth/signup.js';
+import { makeSignInHandlers } from './auth/signin.js';
 
 async function main() {
   const config = loadConfig(process.env);
@@ -17,11 +18,12 @@ async function main() {
   if (!config.smtpUrl) console.warn('[boot] SMTP_URL not set: emails stay queued until it is');
   const storage = config.r2 ? r2Storage(config.r2) : memoryStorage();
   const transport = config.smtpUrl ? smtpTransport(config.smtpUrl, config.emailFrom) : null;
-  const handlers = { ...makeEmailHandlers(() => transport, new URL(config.baseUrl).hostname), ...makePreviewHandlers(storage) };
+  const auth = createAuth({ root: db, config, getTransport: () => transport });
+  const handlers = { ...makeEmailHandlers(() => transport, new URL(config.baseUrl).hostname), ...makePreviewHandlers(storage), ...makeSignInHandlers(auth, config) };
   const stopWorker = startWorker(db, handlers, { intervalMs: 2000 });
   const sweep = () => void sweepUnconfirmedStudios(db).then((n) => n && console.log(`[sweep] removed ${n} unconfirmed studios`)).catch((e) => console.error('[sweep]', e));
   const sweeper = setInterval(sweep, 3600_000); sweep();
-  const server = serve({ fetch: createApp({ db, config, storage, auth: createAuth({ root: db, config, getTransport: () => transport }) }).fetch, port: config.port }, () => console.log(`[boot] listening on ${config.port}`));
+  const server = serve({ fetch: createApp({ db, config, storage, auth }).fetch, port: config.port }, () => console.log(`[boot] listening on ${config.port}`));
   const shutdown = () => { stopWorker(); clearInterval(sweeper); server.close(() => void close().finally(() => process.exit(0))); };
   process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown);
 }

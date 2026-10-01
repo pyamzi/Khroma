@@ -19,7 +19,7 @@ describe('settings', () => {
     const { db, ownerId: u1 } = await studioTestDb();
     const m = await inviteUser(db, { email: 'Sam@X', role: 'member', actor: 'owner@x', baseUrl: 'https://g' });
     expect(m).toMatchObject({ email: 'sam@x', role: 'member' });
-    expect((await db.select().from(jobs)).find((j) => j.kind === 'send_email')?.payload).toMatchObject({ to: 'sam@x', template: 'magic_link', vars: { studio: 'Test Studio' } });
+    expect((await db.select().from(jobs)).find((j) => j.kind === 'send_magic_link')?.payload).toEqual({ email: 'sam@x', kind: 'admin' });
     await expect(inviteUser(db, { email: 'sam@x', role: 'member', actor: 'owner@x', baseUrl: 'https://g' })).rejects.toThrow(TeamError);
     expect(await listUsers(db)).toHaveLength(2);
     await expect(updateUser(db, { userId: u1, patch: { role: 'member' }, actor: 'owner@x' })).rejects.toThrow(/last_owner/);
