@@ -46,10 +46,10 @@ export async function addCullingPreview(db: Db, storage: Storage, o: { projectId
     try { return { ...(await db.transaction((tx) => addPhoto(tx, storage, { projectId: o.projectId, relPath, stage: 'culling', bytes: o.bytes, name: 'preview.jpg' }))), created: true, replaced: false }; }
     catch (e) { if (pgCode(e) !== '23505' || !(ex = await find())) throw e; }
   }
-  if (ex.checksum === checksum) return { photoId: ex.id, created: false, replaced: false };
+  if (ex.checksum === checksum && !ex.purgedAt) return { photoId: ex.id, created: false, replaced: false };
   const p = await project(db, o.projectId);
   await storage.put(photoKey(p.studioId, ex.id, 'original'), o.bytes, 'image/jpeg');
-  await db.update(photos).set({ checksum }).where(eq(photos.id, ex.id)); // width/height follow when the new preview job runs
+  await db.update(photos).set({ checksum, purgedAt: null }).where(eq(photos.id, ex.id)); // width/height follow when the new preview job runs
   await enqueue(db, { kind: 'preview', payload: { photoId: ex.id }, idempotencyKey: `preview:${ex.id}:${checksum}:${newId()}` }); // unique: reverting to earlier bytes (A, B, A) must still re-render; identical bytes returned above
   return { photoId: ex.id, created: false, replaced: true };
 }

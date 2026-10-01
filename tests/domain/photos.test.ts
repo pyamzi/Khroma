@@ -78,4 +78,13 @@ describe('photos', () => {
     await drain();
     expect((await db.select().from(photos)).filter((r) => r.relPath === 'raw/IMG_2.CR3')).toHaveLength(1);
   });
+  it('re-sending the same bytes for a purged culling preview restores it', async () => {
+    const { db, studioId, storage, drain } = await seed(); const bytes = await jpegBytes(40, 30); const send = () => addCullingPreview(db, storage, { projectId: 'p1', relPath: 'raw/IMG_1.CR3', bytes, name: 'x.jpg' });
+    const { photoId } = await send(); await drain();
+    for (const v of ['original', 'preview', 'medium', 'thumb'] as const) await storage.delete(photoKey(studioId, photoId, v)); // what the 30-day sweep does
+    await db.update(photos).set({ purgedAt: new Date().toISOString() }).where(eq(photos.id, photoId));
+    expect(await send()).toMatchObject({ photoId, created: false, replaced: true }); await drain();
+    for (const v of ['original', 'preview', 'medium', 'thumb'] as const) expect(await storage.exists(photoKey(studioId, photoId, v))).toBe(true);
+    expect((await db.select().from(photos).where(eq(photos.id, photoId)))[0]!.purgedAt).toBeNull();
+  });
 });
