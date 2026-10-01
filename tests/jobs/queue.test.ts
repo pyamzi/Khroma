@@ -135,6 +135,15 @@ describe('jobs across Studios', () => {
     expect(await claimNext(db, T0 + 1, ['send_email'])).toBeNull();
     expect((await allJobs(db)).find((j) => j.kind === 'process_upload')!.state).toBe('pending');
   });
+  it('a build_zip lease lasts 15 minutes; other kinds keep 60 s', async () => {
+    const { db, as } = await fresh();
+    await as((tx) => enqueue(tx, { kind: 'build_zip', payload: {}, now: T0 }));
+    await as((tx) => enqueue(tx, { kind: 'preview', payload: {}, now: T0 + 1 }));
+    await claimNext(db, T0 + 1); await claimNext(db, T0 + 1);
+    const lease = async (k: string) => (await allJobs(db)).find((j) => j.kind === k)!.leasedUntil;
+    expect(await lease('build_zip')).toBe(T0 + 1 + 15 * 60_000);
+    expect(await lease('preview')).toBe(T0 + 1 + 60_000);
+  });
   it('runOnce leaves kinds it was not asked to claim alone, even with no handler', async () => {
     const { db, as } = await fresh(); await as((tx) => enqueue(tx, { kind: 'build_zip', payload: {}, now: T0 }));
     expect(await runOnce(db, {}, T0, ['send_email'])).toBe('idle');

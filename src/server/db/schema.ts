@@ -102,8 +102,8 @@ export const slotGrants = pgTable('slot_grants', {
 export const favorites = pgTable('favorites', {
   studioId: studioId(),
   photoId: text('photo_id').notNull(),
-  sessionId: text('session_id').notNull(),
-}, (t) => [uniqueIndex('favorites_one').on(t.photoId, t.sessionId), index('favorites_studio').on(t.studioId), foreignKey({ columns: [t.studioId, t.photoId], foreignColumns: [photos.studioId, photos.id] })]);
+  viewerKey: text('viewer_key').notNull(), // '<kind>:<lowercased subject>', stable across sign-ins (a session id is not)
+}, (t) => [uniqueIndex('favorites_one').on(t.photoId, t.viewerKey), index('favorites_studio').on(t.studioId), foreignKey({ columns: [t.studioId, t.photoId], foreignColumns: [photos.studioId, photos.id] })]);
 
 export const comments = pgTable('comments', {
   id: text('id').primaryKey(),

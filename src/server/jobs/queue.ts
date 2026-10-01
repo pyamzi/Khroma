@@ -16,6 +16,8 @@ export const BACKOFF_MS = [60_000, 300_000, 1_800_000] as const;
 export const MAX_ATTEMPTS = 3;
 /** Jobs that need the processing machine's CPU and memory (image work, zips). Everything else is light and runs on the app machine. */
 export const HEAVY_KINDS = ['process_upload', 'preview', 'build_zip'] as const;
+/** A lease must outlast the job, or another worker re-runs it midway. Kinds not listed get 60 s. */
+export const LEASE_MS: Record<string, number> = { build_zip: 15 * 60_000 };
 
 /**
  * Commit locally first; the worker makes the outside call. A duplicate key (per Studio) returns the existing job.
@@ -32,13 +34,13 @@ export async function enqueue(db: Db, o: { kind: string; payload: unknown; idemp
 }
 
 /** Leases the next due job of any Studio (of the given `kinds`, when set). Concurrent workers skip each other's rows. */
-export function claimNext(root: Db, now: number, kinds?: readonly string[], leaseMs = 60_000): Promise<JobRow | null> {
+export function claimNext(root: Db, now: number, kinds?: readonly string[], leaseMs?: number): Promise<JobRow | null> {
   return asSystem(root, async (tx) => {
     const [row] = await tx.select().from(jobs)
       .where(and(eq(jobs.state, 'pending'), lte(jobs.nextAt, now), or(isNull(jobs.leasedUntil), lt(jobs.leasedUntil, now)), kinds ? inArray(jobs.kind, [...kinds]) : undefined))
       .orderBy(jobs.nextAt).limit(1).for('update', { skipLocked: true });
     if (!row) return null;
-    await tx.update(jobs).set({ state: 'running', leasedUntil: now + leaseMs, attempts: row.attempts + 1 }).where(eq(jobs.id, row.id));
+    await tx.update(jobs).set({ state: 'running', leasedUntil: now + (leaseMs ?? LEASE_MS[row.kind] ?? 60_000), attempts: row.attempts + 1 }).where(eq(jobs.id, row.id));
     return { ...row, state: 'running' as const, attempts: row.attempts + 1 };
   });
 }

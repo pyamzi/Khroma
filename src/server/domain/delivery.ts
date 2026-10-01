@@ -1,11 +1,22 @@
+import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { createWriteStream } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, extname, join } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { promisify } from 'node:util';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { projects, photos, events, clients, invoices } from '../db/schema.js';
+import { projects, photos, events, clients, invoices, favorites } from '../db/schema.js';
 import { ProjectMeta } from './meta.js';
 import { sendEmail } from '../email/send.js';
 import { studioName } from './studio.js';
 import { project, summary } from './selection.js';
-import { photoKey, type Storage, type PhotoVariant } from '../storage.js';
+import { previewVersion } from './photos.js';
+import { photoKey, zipKey, type Storage, type PhotoVariant } from '../storage.js';
 import { enqueue, type Handlers } from '../jobs/queue.js';
 
 export class DeliveryError extends Error {
@@ -83,4 +94,104 @@ export function publishFinals(db: Db, storage: Storage, o: { projectId: string; 
     await enqueue(d, { kind: 'delete_objects', payload: { keys: [...rows.flatMap((p) => DRAFTS.map((v) => key(p.id, v))), ...stale] }, idempotencyKey: `publish-drafts:${o.projectId}:${version}` });
     return { published: ids.length };
   });
+}
+
+type Reason = 'unavailable' | 'no_finals' | 'disabled' | 'review' | 'unpaid';
+const liveFinals = (db: Db, projectId: string) => db.select({ id: photos.id, relPath: photos.relPath, checksum: photos.checksum, readyAt: photos.readyAt }).from(photos)
+  .where(and(eq(photos.projectId, projectId), eq(photos.stage, 'final'), eq(photos.live, true))).orderBy(photos.relPath);
+
+/** Whether the Client may download, and the first reason why not. Zero invoices count as settled. */
+export async function downloadStatus(db: Db, projectId: string): Promise<{ allowed: boolean; reason: Reason | null }> {
+  const p = await project(db, projectId); const no = (reason: Reason) => ({ allowed: false, reason });
+  if (p.archivedAt !== null || p.bookingState === 'cancelled') return no('unavailable');
+  if (!(await liveFinals(db, projectId).limit(1)).length) return no('no_finals');
+  if (ProjectMeta.parse(p.metadataJson).downloads === 'none') return no('disabled'); // 'password' counts as 'client' until H2b
+  const inv = await db.select().from(invoices).where(eq(invoices.projectId, projectId));
+  if (inv.some((i) => i.needsReview) || (await summary(db, projectId)).deficit > 0) return no('review');
+  if (inv.some((i) => i.voidedAt === null && i.paidAmount - i.refundedAmount < i.amount + i.tax)) return no('unpaid');
+  return { allowed: true, reason: null };
+}
+
+/** sha256 of the sorted `id:checksum` lines. */
+export const liveSetHash = (rows: { id: string; checksum: string }[]) => createHash('sha256').update(rows.map((r) => `${r.id}:${r.checksum}`).sort().join('\n')).digest('hex');
+// The row's checksum lands at a replacement's upload, before its bytes go live; previewVersion also moves at publish, so a ZIP is keyed by the bytes it holds.
+const setHash = (rows: { id: string; checksum: string; readyAt: string | null }[]) => liveSetHash(rows.map((r) => ({ id: r.id, checksum: previewVersion(r) })));
+
+/** Names given to browsers and ZIP entries carry no control characters. */
+export const cleanName = (s: string) => s.replace(/[\x00-\x1f\x7f]/g, '');
+/** One entry name per path: its basename, with ` (2)`, ` (3)` … for names already taken (case-insensitively, as Files and Windows see them). */
+export function zipEntryNames(relPaths: string[]): string[] {
+  const taken = new Set<string>();
+  return relPaths.map((rp) => {
+    const name = cleanName(basename(rp)); const ext = extname(name); const stem = name.slice(0, name.length - ext.length);
+    let out = name; for (let n = 2; taken.has(out.toLowerCase()); n++) out = `${stem} (${n})${ext}`;
+    taken.add(out.toLowerCase()); return out;
+  });
+}
+
+/**
+ * A 10-minute R2 URL for one live final or a ZIP of all of them. A missing ZIP is queued for the worker and the caller polls.
+ * ponytail: the job's idempotency key outlives the ZIP; if an R2 lifecycle rule ever expires ZIPs, a done job for the same set must be re-queued here.
+ */
+export async function requestDownload(db: Db, storage: Storage, o: { projectId: string; photoId?: string; actor: string }): Promise<{ url: string } | { preparing: true }> {
+  const p = await project(db, o.projectId).catch(() => { throw new DeliveryError('not_found'); });
+  const rows = await liveFinals(db, p.id);
+  const one = o.photoId === undefined ? null : rows.find((r) => r.id === o.photoId);
+  if (one === undefined) throw new DeliveryError('not_found'); // before the entitlement check: a guessed id learns nothing
+  const st = await downloadStatus(db, p.id); if (!st.allowed) throw new DeliveryError(st.reason!);
+  let key: string; let name: string;
+  if (one) { key = photoKey(p.studioId, one.id, 'original'); name = cleanName(basename(one.relPath)); }
+  else {
+    const hash = setHash(rows); key = zipKey(p.studioId, p.id, hash);
+    if (!(await storage.exists(key))) {
+      await enqueue(db, { kind: 'build_zip', payload: { projectId: p.id, hash }, idempotencyKey: `zip:${p.id}:${hash}` });
+      return { preparing: true };
+    }
+    name = `${cleanName(ProjectMeta.parse(p.metadataJson).title).replace(/[/\\]/g, '').trim() || 'gallery'}.zip`;
+  }
+  await db.insert(events).values({ projectId: p.id, actor: o.actor, type: 'downloaded', payload: { item: one?.id ?? 'all' } });
+  return { url: await storage.presignGet(key, 600, name) };
+}
+
+const run = promisify(execFile);
+/**
+ * Heavy job: a stored (uncompressed) ZIP of the live finals at `zipKey`. A set that changed since the request ends quietly; the new set has its own job.
+ * ponytail: the finished ZIP is read into memory for `put`; switch to a multipart upload if galleries outgrow the worker's RAM.
+ */
+export function makeZipHandlers(storage: Storage): Handlers {
+  return {
+    build_zip: async (payload, { db, studioId }) => {
+      const { projectId, hash } = payload as { projectId: string; hash: string };
+      const rows = await liveFinals(db, projectId);
+      const key = zipKey(studioId, projectId, hash);
+      if (setHash(rows) !== hash || (await storage.exists(key))) return;
+      const dir = await mkdtemp(join(tmpdir(), 'og-zip-')); const files = join(dir, 'files');
+      try {
+        await mkdir(files); const names = zipEntryNames(rows.map((r) => r.relPath));
+        await pool(rows.map((r, i) => ({ id: r.id, name: names[i]! })), 4, async ({ id, name }) => {
+          const obj = await storage.get(photoKey(studioId, id, 'original'));
+          if (!obj) throw new Error(`build_zip: no original for ${id}`);
+          await pipeline(Readable.fromWeb(obj.body as NodeReadableStream<Uint8Array>), createWriteStream(join(files, name)));
+        });
+        // `-r .` from inside the folder: entry names are never read as options
+        await run('zip', ['-q', '-0', '-X', '-r', join(dir, 'out.zip'), '.'], { cwd: files, timeout: 10 * 60_000, killSignal: 'SIGKILL' });
+        await storage.put(key, await readFile(join(dir, 'out.zip')), 'application/zip');
+      } finally { await rm(dir, { recursive: true, force: true }); }
+    },
+  };
+}
+
+/** Hearts belong to a person, not a sign-in: `<kind>:<lowercased subject>`. */
+export const viewerKey = (v: { kind: string; subject: string }) => `${v.kind}:${v.subject.toLowerCase()}`;
+/** Heart counts over the project's live finals, and the ones `key` hearted. */
+export async function favoritesOf(db: Db, projectId: string, key: string): Promise<{ counts: Record<string, number>; mine: string[] }> {
+  const rows = await db.select({ photoId: favorites.photoId, viewerKey: favorites.viewerKey }).from(favorites).innerJoin(photos, eq(photos.id, favorites.photoId))
+    .where(and(eq(photos.projectId, projectId), eq(photos.stage, 'final'), eq(photos.live, true)));
+  const counts: Record<string, number> = {}; for (const r of rows) counts[r.photoId] = (counts[r.photoId] ?? 0) + 1;
+  return { counts, mine: rows.filter((r) => r.viewerKey === key).map((r) => r.photoId) };
+}
+/** Idempotent either way. The caller checks the photo is a live final the viewer can see. */
+export async function setFavorite(db: Db, o: { photoId: string; viewerKey: string; favorite: boolean }): Promise<void> {
+  if (o.favorite) await db.insert(favorites).values({ photoId: o.photoId, viewerKey: o.viewerKey }).onConflictDoNothing();
+  else await db.delete(favorites).where(and(eq(favorites.photoId, o.photoId), eq(favorites.viewerKey, o.viewerKey)));
 }

@@ -4,6 +4,7 @@ import { memoryStorage, r2Storage, type Storage } from './storage.js';
 import type { Handlers } from './jobs/queue.js';
 import { makePreviewHandlers } from './domain/photos.js';
 import { makeLibraryHandlers } from './domain/library.js';
+import { makeZipHandlers } from './domain/delivery.js';
 
 /** The database and storage every machine needs, whichever process group it runs. */
 export async function openRuntime(config: Config) {
@@ -15,5 +16,5 @@ export async function openRuntime(config: Config) {
 
 /** Handlers for the HEAVY_KINDS jobs. Tasks that add a heavy kind register it here, so the app (local mode) and the worker machine agree. */
 export function makeHeavyHandlers(storage: Storage): Handlers {
-  return { ...makePreviewHandlers(storage), ...makeLibraryHandlers(storage) };
+  return { ...makePreviewHandlers(storage), ...makeLibraryHandlers(storage), ...makeZipHandlers(storage) };
 }
