@@ -13,7 +13,8 @@ const WHY: Record<string, string> = {
   review: 'Downloads open once your photographer has reviewed your account.', unpaid: 'Downloads open once your balance is paid.',
   too_large: 'This gallery is too large to download as one ZIP. Download photos one at a time.',
 };
-const POLL_MS = 3000; const POLL_TRIES = 100; // about 5 minutes
+const POLL_MS = 3000; const POLL_TRIES = 100; // about 5 minutes, then every 30 s up to 30 minutes in all: recovering a dead ZIP build takes its 15-minute lease
+const SLOW_MS = 30_000; const SLOW_TRIES = POLL_TRIES + 50;
 
 /** The delivered finals: hearts, a Favorites filter, single downloads from the viewer and a ZIP of everything. */
 export function Gallery({ id, me }: { id: string; me: Me }) {
@@ -53,8 +54,9 @@ export function Gallery({ id, me }: { id: string; me: Me }) {
     try {
       const r = await request();
       if (r.url) { setZip({ state: 'ready', url: r.url }); window.location.href = r.url; return; }
-      if (tries >= POLL_TRIES) { setZip({ state: 'error', msg: 'Still preparing, try again shortly.' }); return; }
-      setZip({ state: 'preparing' }); timer.current = setTimeout(() => void downloadAll(tries + 1), POLL_MS);
+      if (tries >= SLOW_TRIES) { setZip({ state: 'error', msg: 'Still preparing, try again shortly.' }); return; }
+      setZip({ state: 'preparing', msg: tries >= POLL_TRIES ? 'Still preparing your download — you can leave this page and come back.' : undefined });
+      timer.current = setTimeout(() => void downloadAll(tries + 1), tries >= POLL_TRIES ? SLOW_MS : POLL_MS);
     } catch (e) { setZip({ state: 'error', msg: why(e) }); }
   };
 
