@@ -56,7 +56,7 @@ export function createApp({ db, config, storage, auth, webRoot = './dist/web' }:
     c.header('x-content-type-options', 'nosniff');
     c.header('x-frame-options', 'DENY');
     c.header('referrer-policy', 'same-origin');
-    c.header('content-security-policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; media-src 'self'");
+    c.header('content-security-policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; media-src 'self'; connect-src 'self' https://*.r2.cloudflarestorage.com");
   });
   // CSRF: a custom header cannot be sent cross-origin without a preflight, which is never granted (no CORS).
   app.use('/api/*', async (c, next) => {
@@ -92,6 +92,18 @@ export function createApp({ db, config, storage, auth, webRoot = './dist/web' }:
   app.route('/', meRoutes()); app.route('/', projectRoutes()); app.route('/', photoRoutes());
   app.route('/', selectionRoutes(config)); app.route('/', commentRoutes());
   app.route('/', adminRoutes()); app.route('/', settingsRoutes(config)); app.route('/', dashboardRoutes()); app.route('/', pluginRoutes());
+  if (storage.dev) { // memory storage only: stands in for R2's presigned URLs, outside /api/* on purpose (no CSRF header, body limit or transaction; the URL is the capability)
+    const keyOf = (path: string) => decodeURIComponent(path.slice('/dev/storage/'.length));
+    app.put('/dev/storage/*', async (c) => {
+      await storage.put(keyOf(c.req.path), new Uint8Array(await c.req.arrayBuffer()), c.req.header('content-type') ?? 'application/octet-stream');
+      return c.body(null, 200);
+    });
+    app.get('/dev/storage/*', async (c) => {
+      const o = await storage.get(keyOf(c.req.path)); if (!o) return c.json({ error: 'not_found' }, 404);
+      const disposition = c.req.query('response-content-disposition');
+      return new Response(o.body, { headers: { 'content-type': o.contentType, 'content-length': String(o.size), ...(disposition ? { 'content-disposition': disposition } : {}) } });
+    });
+  }
   app.use('/assets/*', serveStatic({ root: webRoot }));
   app.get('*', serveStatic({ root: webRoot, path: 'index.html' }));
   return app;

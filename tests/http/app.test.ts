@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { boot, linkFrom, cookieOf } from './boot.js';
+import { boot, linkFrom, cookieOf, BASE } from './boot.js';
+import { createApp } from '../../src/server/app.js';
+import { createAuth } from '../../src/server/auth/better.js';
+import { loadConfig } from '../../src/server/config.js';
+import { memoryTransport } from '../../src/server/email/transport.js';
+import { r2Storage } from '../../src/server/storage.js';
+import { testDb, tmpDir } from '../helpers.js';
 
 describe('app', () => {
   it('signup emails a link that signs the new owner in once', async () => {
@@ -70,5 +76,28 @@ describe('app', () => {
     const { api } = await boot(); const res = await api('/healthz');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.headers.get('content-security-policy')).toContain("default-src 'self'");
+  });
+  it('memory storage round-trips through the dev route, with no session', async () => {
+    const { app, storage } = await boot();
+    const put = await app.request(await storage.presignPut('s/a b/p/1/original', 'image/jpeg', 900), { method: 'PUT', body: new Uint8Array([1, 2, 3]), headers: { 'content-type': 'image/jpeg' } });
+    expect(put.status).toBe(200);
+    expect([...(await storage.getBytes('s/a b/p/1/original'))!]).toEqual([1, 2, 3]);
+    expect(await storage.exists('s/a b/p/1/original')).toBe(true);
+    const got = await app.request(await storage.presignGet('s/a b/p/1/original', 600, 'x.jpg'));
+    expect([got.status, got.headers.get('content-type'), got.headers.get('content-disposition'), [...new Uint8Array(await got.arrayBuffer())]]).toEqual([200, 'image/jpeg', 'attachment; filename="x.jpg"', [1, 2, 3]]);
+    expect((await app.request('/dev/storage/nope')).status).toBe(404);
+    await storage.copy('s/a b/p/1/original', 's/a b/p/1/draft');
+    expect([...(await storage.getBytes('s/a b/p/1/draft'))!]).toEqual([1, 2, 3]);
+  });
+  it('the dev route does not exist with R2 storage', async () => {
+    const db = await testDb(); const config = loadConfig({ DATABASE_URL: 'pglite://memory', BASE_URL: BASE });
+    const storage = r2Storage({ accountId: 'acc', accessKeyId: 'AK', secretAccessKey: 'SK', bucket: 'b', fetch: (async () => new Response('nope', { status: 500 })) as typeof fetch });
+    const app = createApp({ db, config, storage, auth: createAuth({ root: db, config, getTransport: () => memoryTransport() }), webRoot: await tmpDir() });
+    expect((await app.request('/dev/storage/k', { method: 'PUT', body: 'x' })).status).toBe(404);
+    expect((await app.request('/dev/storage/k')).status).toBe(404);
+  });
+  it('the CSP lets the browser PUT to R2', async () => {
+    const { app } = await boot();
+    expect((await app.request('/healthz')).headers.get('content-security-policy')).toContain("connect-src 'self' https://*.r2.cloudflarestorage.com");
   });
 });
