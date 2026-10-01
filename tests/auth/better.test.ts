@@ -38,7 +38,7 @@ describe('Better Auth instance', () => {
 
   it('the verify link is served through the app and starts a session', async () => {
     const s = await boot(); const { studioId } = await makeStudio(s.db);
-    await s.auth.api.signInMagicLink({ body: { email: 'a@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'client', iat: Date.now() }), metadata: meta(studioId) }, headers: new Headers() });
+    await s.auth.api.signInMagicLink({ body: { email: 'a@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'client', iat: Date.now(), email: 'a@x.com' }), metadata: meta(studioId) }, headers: new Headers() });
     const res = await s.app.request(s.mail.sent.at(-1)!.text.match(/http\S+/)![0], { redirect: 'manual' });
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toContain('/auth/continue');

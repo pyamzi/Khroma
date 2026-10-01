@@ -5,7 +5,7 @@ import { authSessions, authVerifications, studios, clients } from '../../src/ser
 import { asSystem } from '../../src/server/db/tenancy.js';
 import { newId } from '../../src/server/ids.js';
 import { makeStudio } from '../helpers.js';
-import { boot } from '../http/boot.js';
+import { boot, cookieOf } from '../http/boot.js';
 
 type S = Awaited<ReturnType<typeof boot>>;
 const MIN = 60_000, DAY = 864e5;
@@ -13,7 +13,7 @@ const MIN = 60_000, DAY = 864e5;
 /** Send a Better Auth link whose callback is a signed /auth/continue, follow verify, and return the Better Auth cookie and the continue URL. */
 async function arrive(s: S, o: { email: string; studioId: string; kind: 'admin' | 'client'; age?: number; tamper?: (u: string) => string }) {
   const iat = Date.now() - (o.age ?? 0);
-  await s.auth.api.signInMagicLink({ body: { email: o.email, callbackURL: continueUrl(s.config.betterAuthSecret, { studioId: o.studioId, kind: o.kind, iat }), metadata: { studioId: o.studioId, kind: o.kind, fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
+  await s.auth.api.signInMagicLink({ body: { email: o.email, callbackURL: continueUrl(s.config.betterAuthSecret, { studioId: o.studioId, kind: o.kind, iat, email: o.email }), metadata: { studioId: o.studioId, kind: o.kind, fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
   const verify = await s.app.request(s.mail.sent.at(-1)!.text.match(/http\S+/)![0], { redirect: 'manual' });
   const cookie = verify.headers.get('set-cookie')!.split(';')[0]!;
   return { cookie, location: o.tamper ? o.tamper(verify.headers.get('location')!) : verify.headers.get('location')! };
@@ -25,15 +25,17 @@ const addClient = (s: S, studioId: string, email: string) => asSystem(s.db, (tx)
 describe('signed callback', () => {
   it('signs and verifies, and refuses a bad signature, kind, or age', () => {
     const q = (u: string) => Object.fromEntries(new URL(u, 'http://x').searchParams);
-    const u = continueUrl('k', { studioId: 'A', kind: 'admin', iat: 1000 });
-    expect(verifyContinue('k', q(u), 2000)).toEqual({ studioId: 'A', kind: 'admin' });
+    const u = continueUrl('k', { studioId: 'A', kind: 'admin', iat: 1000, email: 'E@x.com' });
+    expect(verifyContinue('k', q(u), 2000)).toEqual({ studioId: 'A', kind: 'admin', email: 'e@x.com' });
+    expect(verifyContinue('k', { ...q(u), email: 'f@x.com' }, 2000)).toBeNull();
+    expect(verifyContinue('k', { ...q(u), email: undefined }, 2000)).toBeNull();
     expect(verifyContinue('other', q(u), 2000)).toBeNull();
     expect(verifyContinue('k', { ...q(u), kind: 'client' }, 2000)).toBeNull();
     expect(verifyContinue('k', { ...q(u), studio: 'B' }, 2000)).toBeNull();
     expect(verifyContinue('k', { ...q(u), sig: undefined }, 2000)).toBeNull();
     expect(verifyContinue('k', q(u), 1000 + 15 * MIN)).not.toBeNull();
     expect(verifyContinue('k', q(u), 1000 + 15 * MIN + 1)).toBeNull();
-    const c = q(continueUrl('k', { studioId: 'A', kind: 'client', iat: 1000 }));
+    const c = q(continueUrl('k', { studioId: 'A', kind: 'client', iat: 1000, email: 'e@x.com' }));
     expect(verifyContinue('k', c, 1000 + 29 * DAY)).not.toBeNull();
     expect(verifyContinue('k', c, 1000 + 30 * DAY + 1)).toBeNull();
   });
@@ -50,7 +52,7 @@ describe('GET /auth/continue', () => {
 
   it('a Team link older than 15 minutes is refused at verify and leaves no session', async () => {
     const s = await boot(); const { studioId } = await makeStudio(s.db, { ownerEmail: 'o@x.com' });
-    await s.auth.api.signInMagicLink({ body: { email: 'o@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'admin', iat: Date.now() - 16 * MIN }), metadata: { studioId, kind: 'admin', fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
+    await s.auth.api.signInMagicLink({ body: { email: 'o@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'admin', iat: Date.now() - 16 * MIN, email: 'o@x.com' }), metadata: { studioId, kind: 'admin', fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
     const res = await s.app.request(s.mail.sent.at(-1)!.text.match(/http\S+/)![0], { redirect: 'manual' });
     expect(res.headers.get('location')).toBe('/signin?error=expired');
     expect(await s.db.select().from(authSessions)).toHaveLength(0);
@@ -111,7 +113,7 @@ describe('GET /auth/continue', () => {
 
   it('a new user cannot skip /auth/continue through newUserCallbackURL or errorCallbackURL', async () => {
     const s = await boot(); const { studioId } = await makeStudio(s.db); await addClient(s, studioId, 'new@x.com'); // never seen by Better Auth
-    await s.auth.api.signInMagicLink({ body: { email: 'new@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'client', iat: Date.now() }), metadata: { studioId, kind: 'client', fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
+    await s.auth.api.signInMagicLink({ body: { email: 'new@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'client', iat: Date.now(), email: 'new@x.com' }), metadata: { studioId, kind: 'client', fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
     const u = new URL(s.mail.sent.at(-1)!.text.match(/http\S+/)![0]);
     u.searchParams.set('newUserCallbackURL', '/'); u.searchParams.set('errorCallbackURL', 'https://evil.example/');
     const first = await s.app.request(u.pathname + u.search, { redirect: 'manual' });
@@ -123,7 +125,7 @@ describe('GET /auth/continue', () => {
 
   it('a callback with no session goes to expired', async () => {
     const s = await boot(); const { studioId } = await makeStudio(s.db);
-    const res = await s.app.request(continueUrl(s.config.betterAuthSecret, { studioId, kind: 'client', iat: Date.now() }), { redirect: 'manual' });
+    const res = await s.app.request(continueUrl(s.config.betterAuthSecret, { studioId, kind: 'client', iat: Date.now(), email: 'c@x.com' }), { redirect: 'manual' });
     expect(res.headers.get('location')).toBe('/signin?error=expired');
   });
 
@@ -154,6 +156,22 @@ describe('GET /auth/continue', () => {
     expect((await session(s, a.cookie))?.session).toMatchObject({ studioId, kind: 'admin' });
   });
 
+  it('a callback whose email is not the verified user is refused at continue', async () => {
+    const s = await boot(); const { studioId } = await makeStudio(s.db, { ownerEmail: 'e@x.com' });
+    const a = await arrive(s, { email: 'e@x.com', studioId, kind: 'admin' });
+    const res = await follow(s, { cookie: a.cookie, location: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'admin', iat: Date.now(), email: 'f@x.com' }) });
+    expect(res.headers.get('location')).toBe('/signin?error=expired');
+    expect(await session(s, a.cookie)).toBeNull();
+  });
+
+  it('an email with + and mixed case signs in (values reach /auth/continue encoded once)', async () => {
+    const s = await boot(); const { studioId } = await makeStudio(s.db); await addClient(s, studioId, 'c+tag@x.com');
+    const a = await arrive(s, { email: 'C+Tag@x.com', studioId, kind: 'client' });
+    expect(new URL(a.location).searchParams.get('email')).toBe('c+tag@x.com');
+    expect((await follow(s, a)).headers.get('location')).toBe('/');
+    expect((await session(s, a.cookie))?.session).toMatchObject({ studioId, kind: 'client' });
+  });
+
   it('the first owner sign-in confirms the Studio', async () => {
     const s = await boot(); const { studioId } = await makeStudio(s.db, { ownerEmail: 'o@x.com' });
     await asSystem(s.db, (tx) => tx.update(studios).set({ confirmedAt: null }).where(eq(studios.id, studioId)));
@@ -167,7 +185,7 @@ describe('GET /auth/continue', () => {
     const edit = async (edit: (u: URL) => void) => {
       const s = await boot(); const { studioId } = await makeStudio(s.db, { ownerEmail: 'o@x.com' });
       const iat = Date.now() - 16 * MIN;
-      await s.auth.api.signInMagicLink({ body: { email: 'o@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'admin', iat }), metadata: { studioId, kind: 'admin', fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
+      await s.auth.api.signInMagicLink({ body: { email: 'o@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'admin', iat, email: 'o@x.com' }), metadata: { studioId, kind: 'admin', fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
       const u = new URL(s.mail.sent.at(-1)!.text.match(/http\S+/)![0]); edit(u);
       const res = await s.app.request(u.pathname + u.search, { redirect: 'manual' });
       expect(res.status).toBe(302); expect(res.headers.get('location')).toBe('/signin?error=expired');
@@ -175,6 +193,27 @@ describe('GET /auth/continue', () => {
       expect(await s.db.select().from(authSessions)).toHaveLength(0);
       expect(await s.db.select().from(authVerifications)).toHaveLength(1); // the token was never consumed
     };
+    it('a fresh callback minted for a colleague, pasted onto a stale Team link', async () => {
+      const s = await boot(); const { studioId } = await makeStudio(s.db, { ownerEmail: 'e@x.com' });
+      const send = (email: string, iat: number) => s.auth.api.signInMagicLink({ body: { email, callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'admin', iat, email }), metadata: { studioId, kind: 'admin', fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
+      await send('e@x.com', Date.now() - 16 * MIN); const stale = new URL(s.mail.sent.at(-1)!.text.match(/http\S+/)![0]);
+      await send('f@x.com', Date.now()); const fresh = new URL(s.mail.sent.at(-1)!.text.match(/http\S+/)![0]);
+      stale.searchParams.set('callbackURL', fresh.searchParams.get('callbackURL')!);
+      const res = await s.app.request(stale.pathname + stale.search, { redirect: 'manual' });
+      expect(res.headers.get('location')).toBe('/signin?error=expired'); expect(res.headers.get('set-cookie')).toBeNull();
+      expect(await s.db.select().from(authSessions)).toHaveLength(0);
+      expect(await s.db.select().from(authVerifications)).toHaveLength(2); // neither token was consumed
+    });
+    it('a callback that a second decode would send elsewhere is normalised to our own /auth/continue', async () => {
+      const s = await boot(); const { studioId } = await makeStudio(s.db, { ownerEmail: 'o@x.com' });
+      await s.auth.api.signInMagicLink({ body: { email: 'o@x.com', callbackURL: continueUrl(s.config.betterAuthSecret, { studioId, kind: 'admin', iat: Date.now(), email: 'o@x.com' }), metadata: { studioId, kind: 'admin', fromName: 'Test Studio', replyTo: null } }, headers: new Headers() });
+      const u = new URL(s.mail.sent.at(-1)!.text.match(/http\S+/)![0]); const cb = u.searchParams.get('callbackURL')!;
+      u.searchParams.set('callbackURL', `http://localhost:3000%2Fsignin%3F@localhost:3000${cb}`);
+      const res = await s.app.request(u.pathname + u.search, { redirect: 'manual' });
+      const loc = new URL(res.headers.get('location')!, 'http://localhost:3000');
+      expect([loc.origin, loc.pathname, loc.search]).toEqual(['http://localhost:3000', '/auth/continue', cb.slice('/auth/continue'.length)]);
+      expect((await follow(s, { cookie: cookieOf(res), location: loc.pathname + loc.search })).headers.get('location')).toBe('/');
+    });
     it('an old Team link with callbackURL rewritten to /', () => edit((u) => u.searchParams.set('callbackURL', '/')));
     it('an old Team link with the callback removed', () => edit((u) => u.searchParams.delete('callbackURL')));
     it('a callback to /auth/continue with a bad signature', () => edit((u) => { const cb = new URL(u.searchParams.get('callbackURL')!, 'http://localhost:3000'); cb.searchParams.set('iat', String(Date.now())); u.searchParams.set('callbackURL', cb.pathname + cb.search); }));

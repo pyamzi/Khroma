@@ -56,7 +56,7 @@ export const systemRoutes = (config: Config, auth: Auth) => new Hono<AppEnv>()
     if (s.session.studioId) return c.redirect('/'); // already bound (a consumed link's second click, or a third-party link): never rebind or sign out
     const now = Date.now();
     const v = verifyContinue(config.betterAuthSecret, c.req.query(), now);
-    if (!v || !(await bindSession(c.get('root'), { sessionId: s.session.id, email: s.user.email.toLowerCase(), studioId: v.studioId, kind: v.kind, now }))) return expired();
+    if (!v || v.email !== s.user.email.toLowerCase() || !(await bindSession(c.get('root'), { sessionId: s.session.id, email: s.user.email.toLowerCase(), studioId: v.studioId, kind: v.kind, now }))) return expired();
     return c.redirect('/');
   })
   .get('/auth/:token', (c) => c.redirect('/signin?error=expired')) // H1 links: their sessions were retired with migration 0003

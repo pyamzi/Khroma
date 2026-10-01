@@ -5,7 +5,10 @@ import type { Db } from './db/client.js';
 import type { Config } from './config.js';
 import type { Storage } from './storage.js';
 import type { Auth } from './auth/better.js';
-import { verifyContinue } from './auth/continue.js';
+import { createHash } from 'node:crypto';
+import { eq } from 'drizzle-orm';
+import { continueUrl, verifyContinue } from './auth/continue.js';
+import { authVerifications } from './db/schema.js';
 import { withStudio, anonTx } from './db/tenancy.js';
 import { sessionMiddleware, type AppEnv } from './http/session.js';
 import { systemRoutes, meRoutes } from './http/routes/auth.js';
@@ -66,16 +69,23 @@ export function createApp({ db, config, storage, auth, webRoot = './dist/web' }:
   app.use('*', async (c, next) => { c.set('storage', storage); await next(); });
   app.route('/', systemRoutes(config, auth)); // registered before the request transaction: these open their own system transactions
   // The only Better Auth route that is public; sign-in links are sent by the job queue. Better Auth reads callbackURL from the clicked link, so a user could edit it
-  // and turn a stale token into a session that never passes /auth/continue. Refuse before the token is consumed unless the callback is our own signed, unexpired one.
-  app.get('/api/ba/magic-link/verify', (c) => {
-    let ok = false;
+  // and turn a stale token into a session that never passes /auth/continue. Refuse before the token is consumed unless the callback is our own signed, unexpired one,
+  // minted for the email the token was sent to.
+  app.get('/api/ba/magic-link/verify', async (c) => {
+    let callbackURL: string | null = null;
     try {
       const cb = new URL(c.req.query('callbackURL') ?? '', config.baseUrl);
-      ok = cb.origin === new URL(config.baseUrl).origin && cb.pathname === '/auth/continue' && !!verifyContinue(config.betterAuthSecret, Object.fromEntries(cb.searchParams), Date.now());
+      const v = cb.origin === new URL(config.baseUrl).origin && cb.pathname === '/auth/continue' ? verifyContinue(config.betterAuthSecret, Object.fromEntries(cb.searchParams), Date.now()) : null;
+      // Better Auth's own lookup (hashed token, `magic-link:` prefix). A consumed token has no row: Better Auth answers it with INVALID_TOKEN to our callback.
+      const id = `magic-link:${createHash('sha256').update(c.req.query('token') ?? '').digest('base64url')}`;
+      const [row] = v ? await db.select({ value: authVerifications.value }).from(authVerifications).where(eq(authVerifications.identifier, id)).limit(1) : [];
+      const sentTo = row ? String((JSON.parse(row.value) as { email?: unknown }).email).toLowerCase() : null;
+      if (v && (!sentTo || sentTo === v.email)) callbackURL = continueUrl(config.betterAuthSecret, { ...v, iat: cb.searchParams.get('iat')! }); // rebuilt from the checked values only
     } catch { /* unparseable callback */ }
-    if (!ok) return c.redirect('/signin?error=expired');
+    if (!callbackURL) return c.redirect('/signin?error=expired');
     // Better Auth also honours these two from the link; either would send a new user, or a consumed link's error, somewhere other than our callback
     const url = new URL(c.req.url); url.searchParams.delete('newUserCallbackURL'); url.searchParams.delete('errorCallbackURL');
+    url.searchParams.set('callbackURL', encodeURIComponent(callbackURL)); // Better Auth decodes the parsed value once more; this keeps it exactly our URL
     return auth.handler(new Request(url, { method: c.req.method, headers: c.req.raw.headers }));
   });
   app.use('/api/*', requestTx(db));
