@@ -9,6 +9,7 @@ import { makeEmailHandlers } from './email/send.js';
 import { smtpTransport } from './email/transport.js';
 import { sweepUnconfirmedStudios } from './auth/signup.js';
 import { makeSignInHandlers } from './auth/signin.js';
+import { sweepStaleUploads } from './domain/library.js';
 
 async function main() {
   const config = loadConfig(process.env);
@@ -23,7 +24,10 @@ async function main() {
   const handlers = remote ? light : { ...light, ...makeHeavyHandlers(storage) };
   const onTick = remote ? wakeOnPending(db, remote) : undefined;
   const stopWorker = startWorker(db, handlers, { intervalMs: 2000, kinds: Object.keys(handlers), onTick });
-  const sweep = () => void sweepUnconfirmedStudios(db).then((n) => n && console.log(`[sweep] removed ${n} unconfirmed studios`)).catch((e) => console.error('[sweep]', e));
+  const sweep = () => {
+    void sweepUnconfirmedStudios(db).then((n) => n && console.log(`[sweep] removed ${n} unconfirmed studios`)).catch((e) => console.error('[sweep]', e));
+    void sweepStaleUploads(db, storage, Date.now()).then((n) => n && console.log(`[sweep] removed ${n} stale uploads`)).catch((e) => console.error('[sweep]', e));
+  };
   const sweeper = setInterval(sweep, 3600_000); sweep();
   const server = serve({ fetch: createApp({ db, config, storage, auth }).fetch, port: config.port }, () => console.log(`[boot] listening on ${config.port}`));
   const shutdown = () => { stopWorker(); clearInterval(sweeper); server.close(() => void close().finally(() => process.exit(0))); };

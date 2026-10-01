@@ -7,7 +7,8 @@ import { makeSignInHandlers } from '../../src/server/auth/signin.js';
 import { memoryTransport } from '../../src/server/email/transport.js';
 import { memoryStorage } from '../../src/server/storage.js';
 import { withStudio } from '../../src/server/db/tenancy.js';
-import { addPhoto, makePreviewHandlers } from '../../src/server/domain/photos.js';
+import { addPhoto } from '../../src/server/domain/photos.js';
+import { makeHeavyHandlers } from '../../src/server/runtime.js';
 import { tiffBytes } from '../fixtures/make.js';
 import { testDb, tmpDir } from '../helpers.js';
 
@@ -23,7 +24,7 @@ export async function boot() {
   const config = loadConfig({ DATABASE_URL: 'pglite://memory', BASE_URL: BASE });
   const auth = createAuth({ root: db, config, getTransport: () => mail });
   const app = createApp({ db, config, storage, auth, webRoot: await tmpDir() });
-  const handlers = { ...makeEmailHandlers(() => mail, 'localhost'), ...makePreviewHandlers(storage), ...makeSignInHandlers(auth, config) };
+  const handlers = { ...makeEmailHandlers(() => mail, 'localhost'), ...makeHeavyHandlers(storage), ...makeSignInHandlers(auth, config) };
   const drain = async () => { while ((await runOnce(db, handlers)) === 'ran') { /* drain */ } };
   const api = (path: string, init: Init = {}) => app.request(path, { ...init, headers: {
     ...(init.body instanceof FormData ? {} : { 'content-type': 'application/json' }), 'x-requested-with': 'fetch',
