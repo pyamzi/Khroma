@@ -53,6 +53,7 @@ export const systemRoutes = (config: Config, auth: Auth) => new Hono<AppEnv>()
     };
     const s = await auth.api.getSession({ headers });
     if (!s) return c.redirect('/signin?error=expired');
+    if (s.session.studioId) return c.redirect('/'); // already bound (a consumed link's second click, or a third-party link): never rebind or sign out
     const now = Date.now();
     const v = verifyContinue(config.betterAuthSecret, c.req.query(), now);
     if (!v || !(await bindSession(c.get('root'), { sessionId: s.session.id, email: s.user.email.toLowerCase(), studioId: v.studioId, kind: v.kind, now }))) return expired();

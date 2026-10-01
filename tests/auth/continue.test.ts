@@ -127,6 +127,33 @@ describe('GET /auth/continue', () => {
     expect(res.headers.get('location')).toBe('/signin?error=expired');
   });
 
+  it('a bound session hitting /auth/continue with a bad sig keeps its session', async () => {
+    const s = await boot(); const { studioId } = await makeStudio(s.db); await addClient(s, studioId, 'c@x.com');
+    const a = await arrive(s, { email: 'c@x.com', studioId, kind: 'client' }); await follow(s, a);
+    const res = await follow(s, { cookie: a.cookie, location: '/auth/continue?sig=x' }); // e.g. a third-party link
+    expect(res.headers.get('location')).toBe('/'); expect(res.headers.get('set-cookie')).toBeNull();
+    expect((await session(s, a.cookie))?.session).toMatchObject({ studioId, kind: 'client' });
+  });
+
+  it('a bound session opening a valid continue URL for another Studio stays bound to its own', async () => {
+    const s = await boot(); const A = await makeStudio(s.db, { ownerEmail: 'both@x.com' }); const B = await makeStudio(s.db); await addClient(s, B.studioId, 'both@x.com');
+    const a = await arrive(s, { email: 'both@x.com', studioId: A.studioId, kind: 'admin' }); await follow(s, a);
+    const b = await arrive(s, { email: 'both@x.com', studioId: B.studioId, kind: 'client' });
+    expect((await follow(s, { cookie: a.cookie, location: b.location })).headers.get('location')).toBe('/');
+    expect((await session(s, a.cookie))?.session).toMatchObject({ studioId: A.studioId, kind: 'admin' });
+  });
+
+  it('a second click on a consumed link in the same browser lands on / still signed in', async () => {
+    const s = await boot(); const { studioId } = await makeStudio(s.db, { ownerEmail: 'o@x.com' });
+    const a = await arrive(s, { email: 'o@x.com', studioId, kind: 'admin' }); await follow(s, a);
+    const link = s.mail.sent.at(-1)!.text.match(/http\S+/)![0];
+    const again = await s.app.request(link, { redirect: 'manual', headers: { cookie: a.cookie } });
+    expect(again.headers.get('location')).toMatch(/\/auth\/continue\?.*error=INVALID_TOKEN/);
+    const res = await follow(s, { cookie: a.cookie, location: again.headers.get('location')! });
+    expect(res.headers.get('location')).toBe('/');
+    expect((await session(s, a.cookie))?.session).toMatchObject({ studioId, kind: 'admin' });
+  });
+
   it('the first owner sign-in confirms the Studio', async () => {
     const s = await boot(); const { studioId } = await makeStudio(s.db, { ownerEmail: 'o@x.com' });
     await asSystem(s.db, (tx) => tx.update(studios).set({ confirmedAt: null }).where(eq(studios.id, studioId)));
