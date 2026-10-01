@@ -3,7 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { jobs, clients } from '../../src/server/db/schema.js';
 import { withStudio, asSystem } from '../../src/server/db/tenancy.js';
 import type { Db } from '../../src/server/db/client.js';
-import { enqueue, runOnce, recoverLeases, claimNext, retryJob, NeedsReview, BACKOFF_MS, HEAVY_KINDS } from '../../src/server/jobs/queue.js';
+import { enqueue, runOnce, recoverLeases, claimNext, retryJob, NeedsReview, BACKOFF_MS, MAX_ATTEMPTS, HEAVY_KINDS } from '../../src/server/jobs/queue.js';
 import { startWorker } from '../../src/server/jobs/worker.js';
 import { testDb, makeStudio } from '../helpers.js';
 
@@ -179,5 +179,16 @@ describe('jobs across Studios', () => {
     expect(await recoverLeases(db, T0, ['send_email'])).toBe(1);
     const states = Object.fromEntries((await allJobs(db)).map((j) => [j.kind, j.state]));
     expect(states).toEqual({ preview: 'running', send_email: 'pending' }); // the app must not recover jobs another machine may still be running
+  });
+  it('recoverLeases fails a job that keeps killing its worker, and retries one that has attempts left', async () => {
+    const { db, as } = await fresh(); const long = T0 - 1e6;
+    for (const attempts of [1, MAX_ATTEMPTS]) {
+      await as((tx) => enqueue(tx, { kind: 'preview', payload: {}, idempotencyKey: `k${attempts}`, runAt: long }));
+      await asSystem(db, (tx) => tx.update(jobs).set({ state: 'running', leasedUntil: long + 1, attempts }).where(eq(jobs.idempotencyKey, `k${attempts}`)));
+    }
+    expect(await recoverLeases(db, T0)).toBe(2);
+    const by = Object.fromEntries((await allJobs(db)).map((j) => [j.attempts, j]));
+    expect(by[1]).toMatchObject({ state: 'pending', leasedUntil: null });
+    expect(by[MAX_ATTEMPTS]).toMatchObject({ state: 'failed', leasedUntil: null, lastError: 'worker died during the job' });
   });
 });

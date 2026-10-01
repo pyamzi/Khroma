@@ -19,8 +19,8 @@ function stub(startStatus = 200) {
 describe('makeWaker', () => {
   it('starts the worker machine once per interval', async () => {
     const { fetch, calls } = stub(); const wake = makeWaker({ appName: 'og', token: 't0k', fetch });
-    await wake();
-    for (const [, init] of vi.mocked(fetch).mock.calls) expect(init?.signal).toBeInstanceOf(AbortSignal); // a hung Machines API times out await new Promise((r) => setTimeout(r, 1)); await wake();
+    await wake(); await new Promise((r) => setTimeout(r, 1)); await wake(); // within the interval: suppressed
+    for (const [, init] of vi.mocked(fetch).mock.calls) expect(init?.signal).toBeInstanceOf(AbortSignal); // a hung Machines API times out
     expect(calls).toEqual([
       { url: 'https://api.machines.dev/v1/apps/og/machines?metadata.fly_process_group=worker', method: 'GET', auth: 'Bearer t0k' },
       { url: 'https://api.machines.dev/v1/apps/og/machines/m1/start', method: 'POST', auth: 'Bearer t0k' },

@@ -1,4 +1,4 @@
-import { and, eq, lte, or, isNull, lt, inArray } from 'drizzle-orm';
+import { and, eq, lte, or, isNull, lt, gte, inArray } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { jobs } from '../db/schema.js';
 import { asSystem, withStudio } from '../db/tenancy.js';
@@ -64,10 +64,19 @@ export async function runOnce(root: Db, handlers: Handlers, now = Date.now(), ki
   return 'ran';
 }
 
-/** After a crash, jobs left 'running' past their lease go back to pending. Pass `kinds` so a machine recovers only jobs it would run itself, never another machine's. */
+/**
+ * After a crash, jobs left 'running' past their lease go back to pending, unless they have used all their attempts:
+ * a job that keeps killing its worker (an OOM on one photo) is failed instead of looping forever.
+ * Pass `kinds` so a machine recovers only jobs it would run itself, never another machine's.
+ */
 export async function recoverLeases(root: Db, now: number, kinds?: readonly string[]): Promise<number> {
-  return asSystem(root, async (tx) => (await tx.update(jobs).set({ state: 'pending', leasedUntil: null })
-    .where(and(eq(jobs.state, 'running'), lt(jobs.leasedUntil, now), kinds ? inArray(jobs.kind, [...kinds]) : undefined)).returning({ id: jobs.id })).length);
+  return asSystem(root, async (tx) => {
+    const expired = and(eq(jobs.state, 'running'), lt(jobs.leasedUntil, now), kinds ? inArray(jobs.kind, [...kinds]) : undefined);
+    const failed = await tx.update(jobs).set({ state: 'failed', leasedUntil: null, lastError: 'worker died during the job' })
+      .where(and(expired, gte(jobs.attempts, MAX_ATTEMPTS))).returning({ id: jobs.id });
+    const retried = await tx.update(jobs).set({ state: 'pending', leasedUntil: null }).where(expired).returning({ id: jobs.id }); // the failed rows no longer match 'running'
+    return failed.length + retried.length;
+  });
 }
 
 /** Only terminal, reviewable states can be retried; a done job would repeat its side effect and a running one would double-execute. */
