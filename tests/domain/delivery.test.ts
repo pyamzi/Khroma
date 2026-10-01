@@ -144,6 +144,11 @@ describe('publishFinals', () => {
     expect(mails[0]).toMatchObject({ template: 'gallery_ready', vars: { project: 'Wedding', url: `${BASE}/p/${pid}/gallery` } });
     expect(mails.map((m) => m.key).sort()).toEqual([`gallery:${pid}:${v + 1}:a@x.com`, `gallery:${pid}:${v + 1}:b@x.com`]);
   });
+  it('a non-final publish batch (notify: false) sends no email even with notifyOnPublish on', async () => {
+    const on = await seed({ notify: true, emails: ['a@x.com'] }); const f = await on.draft('A.jpg', on.src);
+    await publishFinals(on.db, on.storage, { projectId: pid, photoIds: [f], expectedVersion: (await on.proj()).stateVersion, actor: 'owner@x', baseUrl: BASE, notify: false });
+    expect((await on.db.select().from(jobs)).filter((j) => j.kind === 'send_email')).toHaveLength(0);
+  });
 });
 
 describe('downloads', () => {

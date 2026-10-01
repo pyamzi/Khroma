@@ -17,7 +17,7 @@ export const MAX_ATTEMPTS = 3;
 /** Jobs that need the processing machine's CPU and memory (image work, zips). Everything else is light and runs on the app machine. */
 export const HEAVY_KINDS = ['process_upload', 'preview', 'build_zip'] as const;
 /** A lease must outlast the job, or another worker re-runs it midway. Kinds not listed get 60 s. */
-export const LEASE_MS: Record<string, number> = { build_zip: 15 * 60_000 };
+export const LEASE_MS: Record<string, number> = { build_zip: 15 * 60_000, process_upload: 5 * 60_000, delete_objects: 5 * 60_000 }; // also each job's idle-in-transaction allowance
 
 /**
  * Commit locally first; the worker makes the outside call. A duplicate key (per Studio) returns the existing job.

@@ -17,8 +17,8 @@ export const REASON: Record<string, string> = { culling_finished: 'Picks are in'
 export const bytes = (n: number | null) => n === null ? '' : n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(2)} GB`;
 export const ago = (iso: string) => { const s = (Date.now() - Date.parse(iso)) / 1000; if (s < 90) return 'just now'; if (s < 3600) return `${Math.round(s / 60)}m`; if (s < 86400) return `${Math.round(s / 3600)}h`; return `${Math.round(s / 86400)}d`; };
 
-export const publishFinals = (projectId: string, photoIds: string[], expectedVersion: number) =>
-  api<{ published: number }>(`/api/projects/${projectId}/publish`, { method: 'POST', body: JSON.stringify({ photoIds, expectedVersion }) });
+export const publishFinals = (projectId: string, photoIds: string[], expectedVersion: number, notify = true) =>
+  api<{ published: number }>(`/api/projects/${projectId}/publish`, { method: 'POST', body: JSON.stringify({ photoIds, expectedVersion, notify }) });
 
 export type LibraryItem = { id: string; status: 'uploading' | 'processing' | 'ready'; width: number | null; height: number | null; createdAt: string; projectId: string | null; projectTitle: string | null; v: string };
 export type LibraryPage = { total: number; items: LibraryItem[]; nextCursor: string | null };

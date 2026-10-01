@@ -56,7 +56,7 @@ export function makeDeliveryHandlers(storage: Storage): Handlers {
  * ponytail: a crash after the copies but before the commit leaves live bytes under a still-draft row; a retry copies the same draft again to the same live key, so it is idempotent.
  * Copies run per photo with `original` last, but a batch that fails midway can leave earlier photos showing replacement previews until the retry.
  */
-export function publishFinals(db: Db, storage: Storage, o: { projectId: string; photoIds: string[]; expectedVersion: number; actor: string; baseUrl: string }): Promise<{ published: number }> {
+export function publishFinals(db: Db, storage: Storage, o: { projectId: string; photoIds: string[]; expectedVersion: number; actor: string; baseUrl: string; notify?: boolean }): Promise<{ published: number }> {
   return db.transaction(async (d) => {
     const r = await project(d, o.projectId, true).catch(() => { throw new DeliveryError('not_found'); });
     if (r.stateVersion !== o.expectedVersion) throw new DeliveryError('conflict');
@@ -87,7 +87,7 @@ export function publishFinals(db: Db, storage: Storage, o: { projectId: string; 
     if (r.productionState !== 'delivered') await d.insert(events).values({ projectId: o.projectId, actor: 'system', type: 'production_changed', payload: { from: r.productionState, to: 'delivered' } });
     await d.insert(events).values({ projectId: o.projectId, actor: o.actor, type: 'finals_published', payload: { photoIds: ids } });
     const meta = ProjectMeta.parse(r.metadataJson);
-    if (meta.notifyOnPublish) {
+    if (meta.notifyOnPublish && o.notify !== false) { // the web sends notify: false on all but the last batch
       const [cl] = await d.select({ emails: clients.emails }).from(clients).where(eq(clients.id, r.clientId)).limit(1);
       const studio = await studioName(d);
       for (const to of cl?.emails ?? [])
