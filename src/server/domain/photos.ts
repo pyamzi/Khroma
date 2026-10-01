@@ -49,7 +49,7 @@ export async function addCullingPreview(db: Db, storage: Storage, o: { projectId
   const p = await project(db, o.projectId);
   await storage.put(photoKey(p.studioId, ex.id, 'original'), o.bytes, 'image/jpeg');
   await db.update(photos).set({ checksum }).where(eq(photos.id, ex.id)); // width/height follow when the new preview job runs
-  await enqueue(db, { kind: 'preview', payload: { photoId: ex.id }, idempotencyKey: `preview:${ex.id}:${checksum}` });
+  await enqueue(db, { kind: 'preview', payload: { photoId: ex.id }, idempotencyKey: `preview:${ex.id}:${checksum}:${newId()}` }); // unique: reverting to earlier bytes (A, B, A) must still re-render; identical bytes returned above
   return { photoId: ex.id, created: false, replaced: true };
 }
 const TYPES: Record<string, string> = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', mp4: 'video/mp4', mov: 'video/quicktime' };

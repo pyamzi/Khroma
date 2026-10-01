@@ -107,6 +107,17 @@ describe('plugin api', () => {
       await b.drain();
       expect(await list()).toMatchObject({ width: 80, pick: { state: 'confirmed' } });
     });
+    it('reverting to earlier bytes (A, B, A) re-renders the preview', async () => {
+      const b = await boot(); const rw = await b.mint({ name: 'Sam', scope: 'read+write' });
+      const A = await sized(40, 30); const B = await sized(80, 60);
+      const { photoId } = await b.json<{ photoId: string }>(await send(b, rw.token, b.pid, 'raw/IMG_1.CR3', A)); await b.drain();
+      await send(b, rw.token, b.pid, 'raw/IMG_1.CR3', B); await b.drain();
+      expect(await send(b, rw.token, b.pid, 'raw/IMG_1.CR3', A).then((r) => b.json<unknown>(r))).toMatchObject({ replaced: true }); await b.drain();
+      const ph = (await b.json<{ id: string; width: number; height: number }[]>(await b.api(`/api/projects/${b.pid}/photos?stage=culling`, { cookie: b.sarah }))).find((p) => p.id === photoId)!;
+      expect(ph).toMatchObject({ width: 40, height: 30 });
+      const meta = await sharp(Buffer.from(await (await b.api(`/api/photos/${photoId}/preview?size=preview`, { cookie: b.sarah })).arrayBuffer())).metadata();
+      expect(meta.width).toBe(40);
+    });
     it('refuses a non-JPEG preview with 415 and an oversize one with 413', async () => {
       const b = await boot(); const rw = await b.mint({ name: 'Sam', scope: 'read+write' });
       expect((await send(b, rw.token, b.pid, 'raw/IMG_1.CR3', await sharp({ create: { width: 8, height: 8, channels: 3, background: '#000' } }).png().toBuffer())).status).toBe(415);

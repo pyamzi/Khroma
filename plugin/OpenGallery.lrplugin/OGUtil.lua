@@ -31,6 +31,14 @@ function M.relativeToProject(mountPath, folderPath, filePath)
   return f:sub(#r + 2)
 end
 
+-- names: array of file names. Returns { [name] = count } for names that occur more than once (case-sensitive, like the server's paths).
+function M.duplicateLeaves(names)
+  local counts, dups = {}, {}
+  for _, n in ipairs(names) do counts[n] = (counts[n] or 0) + 1 end
+  for n, c in pairs(counts) do if c > 1 then dups[n] = c end end
+  return dups
+end
+
 function M.uploadId(photo, renderedPath)
   local uuid = photo:getRawMetadata('uuid') or tostring(photo)
   local LrFileUtils = import 'LrFileUtils'

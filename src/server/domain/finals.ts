@@ -45,7 +45,7 @@ export async function uploadFinal(db: Db, storage: Storage, o: { projectId: stri
     catch (e) { if (pgCode(e) === '23505') throw new FinalsError('conflict'); throw e; } // a concurrent upload took this path first; the caller retries
   }
   await storage.put(photoKey(p.studioId, photoId, 'draft'), o.bytes, sn.format === 'png' ? 'image/png' : 'image/jpeg');
-  await enqueue(db, { kind: 'preview', payload: { photoId }, idempotencyKey: `preview:${photoId}:${checksum}:d` });
+  await enqueue(db, { kind: 'preview', payload: { photoId }, idempotencyKey: `preview:${photoId}:${checksum}:d:${newId()}` }); // unique so reverted bytes re-render; identical bytes returned above
   await db.insert(events).values({ projectId: o.projectId, actor: o.actor, type: 'final_uploaded', payload: { photoId, uploadId: o.uploadId, relPath: livePath, replaced } });
   return { photoId, relPath: livePath, draftRelPath: draftPath, replaced, idempotent: false };
 }

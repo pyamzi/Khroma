@@ -63,23 +63,34 @@ LrTasks.startAsyncTask(function()
 
   local progress = LrProgressScope { title = 'Sending previews to OpenGallery' }
   local sent, unchanged, failed, firstError = 0, 0, 0, nil
+  -- Previews are keyed by RAW file name (raw/<name>), so two selected photos with one name (second shooter, counter rollover,
+  -- virtual copies) would overwrite each other: refuse them. ponytail: a clash with a photo sent in an EARLIER batch is not detected;
+  -- a source-identity check on the server is planned.
+  local names = {}
+  for i, photo in ipairs(photos) do names[i] = LrPathUtils.leafName(photo:getRawMetadata('path')) end
+  local dups = OGUtil.duplicateLeaves(names)
+  local dupLines = {}
+  for n, c in pairs(dups) do dupLines[#dupLines + 1] = string.format('%s appears %d times in this selection (different folders or virtual copies). Send them separately after renaming.', n, c) end
+  table.sort(dupLines)
   for i, photo in ipairs(photos) do
     if progress:isCanceled() then break end
     progress:setPortionComplete(i - 1, #photos)
-    local name = LrPathUtils.leafName(photo:getRawMetadata('path'))
+    local name = names[i]
     progress:setCaption(name)
-    local file, why = renderPreview(photo)
+    local file, why
+    if dups[name] then why = 'duplicate file name in this selection' else file, why = renderPreview(photo) end
     local r, err
     if file then
       r, err = a:uploadCulling(projectId, { filePath = file, relPath = 'raw/' .. name })
       LrFileUtils.delete(file)
     else err = why end
-    if not r then failed = failed + 1; firstError = firstError or (name .. ': ' .. tostring(err))
+    if not r then failed = failed + 1; if not dups[name] then firstError = firstError or (name .. ': ' .. tostring(err)) end
     elseif r.created or r.replaced then sent = sent + 1
     else unchanged = unchanged + 1 end
   end
   progress:done()
   local summary = string.format('%d sent, %d unchanged, %d failed.', sent, unchanged, failed)
+  if #dupLines > 0 then summary = summary .. '\n\n' .. table.concat(dupLines, '\n') end
   if firstError then summary = summary .. '\nFirst error: ' .. firstError end
   LrDialogs.message('OpenGallery culling', summary, failed > 0 and 'warning' or 'info')
 end)

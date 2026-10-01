@@ -4,6 +4,7 @@ package.path = pluginDir .. '/?.lua;' .. testsDir .. '/?.lua;' .. package.path
 local json = require 'json'
 local OGApi = require 'OGApi'
 local http = require 'curl_http'
+local OGUtil = require 'OGUtil'
 
 -- json round trips
 assert(json.encode({ a = { 1, 2, 'x' }, b = json.null, c = true, d = 'q"\n' }) == '{"a":[1,2,"x"],"b":null,"c":true,"d":"q\\"\\n"}')
@@ -33,6 +34,11 @@ local c2 = assert(api:uploadCulling(project.id, { filePath = jpegPath, relPath =
 assert(c2.created == false and c2.replaced == false and c2.photoId == c1.photoId, 'culling idempotent')
 assert(assert(api:resolve(project.id, { 'raw/IMG_9001.CR3' }))['raw/IMG_9001.CR3'] == c1.photoId, 'culling resolves')
 local _, cerr = api:uploadCulling(project.id, { filePath = jpegPath, relPath = '' }); assert(cerr and cerr:match('400'), 'empty relPath refused')
+
+-- same leaf name twice in one batch is detected (counts per duplicated name; unique names are absent)
+local dups = OGUtil.duplicateLeaves({ 'IMG_1.CR3', 'IMG_2.CR3', 'IMG_1.CR3', 'IMG_1.CR3', 'img_2.cr3' })
+assert(dups['IMG_1.CR3'] == 3 and dups['IMG_2.CR3'] == nil and dups['img_2.cr3'] == nil, 'duplicateLeaves')
+assert(next(OGUtil.duplicateLeaves({ 'a', 'b' })) == nil, 'no duplicates')
 
 local picks = assert(api:picks(project.id))
 assert(picks.round == 1 and #picks.picks == 1 and picks.picks[1].relPath == 'raw/a.dng', 'picks after finish')
