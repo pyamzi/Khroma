@@ -8,7 +8,7 @@ export type WorkerOpts = {
   /** Call `onIdleExit` once nothing has been claimed for this long, and stop. */
   exitWhenIdleMs?: number;
   onIdleExit?: () => void;
-  /** Runs before each claim pass; its failures are logged and never block the pass. */
+  /** Runs before each claim pass and is awaited, so it must return quickly (start slow work without awaiting it); its failures are logged. */
   onTick?: () => Promise<void>;
 };
 
@@ -18,6 +18,7 @@ export function startWorker(root: Db, handlers: Handlers, opts: WorkerOpts): () 
   const tick = async () => {
     if (stopped || busy) return; busy = true;
     try {
+      await recoverLeases(root, Date.now(), opts.kinds); // a worker that crashed mid-job left it 'running'; nothing else would ever re-run it
       await opts.onTick?.().catch((e) => console.error('[jobs] onTick failed', e));
       while (!stopped && (await runOnce(root, handlers, Date.now(), opts.kinds)) === 'ran') lastWork = Date.now();
     }
@@ -26,6 +27,6 @@ export function startWorker(root: Db, handlers: Handlers, opts: WorkerOpts): () 
     if (!stopped && opts.exitWhenIdleMs !== undefined && Date.now() - lastWork >= opts.exitWhenIdleMs) { stopped = true; clearInterval(timer); opts.onIdleExit?.(); }
   };
   const timer = setInterval(tick, opts.intervalMs);
-  void recoverLeases(root, Date.now()).catch((e) => console.error('[jobs] lease recovery failed', e)).then(tick);
+  void tick();
   return () => { stopped = true; clearInterval(timer); };
 }

@@ -1,13 +1,12 @@
 import { serve } from '@hono/node-server';
 import { loadConfig } from './config.js';
-import { openRuntime } from './runtime.js';
+import { openRuntime, makeHeavyHandlers } from './runtime.js';
 import { createApp } from './app.js';
 import { createAuth } from './auth/better.js';
 import { startWorker } from './jobs/worker.js';
-import { makeWaker, pendingHeavy } from './jobs/wake.js';
+import { makeWaker, wakeOnPending } from './jobs/wake.js';
 import { makeEmailHandlers } from './email/send.js';
 import { smtpTransport } from './email/transport.js';
-import { makePreviewHandlers } from './domain/photos.js';
 import { sweepUnconfirmedStudios } from './auth/signup.js';
 import { makeSignInHandlers } from './auth/signin.js';
 
@@ -21,8 +20,8 @@ async function main() {
   // Remote: heavy jobs run on the Fly worker machine, which this machine starts when they are pending. Local: this machine runs everything.
   // Either way it claims exactly the kinds it has handlers for.
   const remote = config.processing.mode === 'remote' ? makeWaker(config.processing) : null;
-  const handlers = remote ? light : { ...light, ...makePreviewHandlers(storage) };
-  const onTick = remote ? async () => { if (await pendingHeavy(db, Date.now())) await remote(); } : undefined;
+  const handlers = remote ? light : { ...light, ...makeHeavyHandlers(storage) };
+  const onTick = remote ? wakeOnPending(db, remote) : undefined;
   const stopWorker = startWorker(db, handlers, { intervalMs: 2000, kinds: Object.keys(handlers), onTick });
   const sweep = () => void sweepUnconfirmedStudios(db).then((n) => n && console.log(`[sweep] removed ${n} unconfirmed studios`)).catch((e) => console.error('[sweep]', e));
   const sweeper = setInterval(sweep, 3600_000); sweep();

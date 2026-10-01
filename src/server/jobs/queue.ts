@@ -64,10 +64,10 @@ export async function runOnce(root: Db, handlers: Handlers, now = Date.now(), ki
   return 'ran';
 }
 
-/** After a crash, jobs left 'running' past their lease go back to pending. */
-export async function recoverLeases(root: Db, now: number): Promise<number> {
+/** After a crash, jobs left 'running' past their lease go back to pending. Pass `kinds` so a machine recovers only jobs it would run itself, never another machine's. */
+export async function recoverLeases(root: Db, now: number, kinds?: readonly string[]): Promise<number> {
   return asSystem(root, async (tx) => (await tx.update(jobs).set({ state: 'pending', leasedUntil: null })
-    .where(and(eq(jobs.state, 'running'), lt(jobs.leasedUntil, now))).returning({ id: jobs.id })).length);
+    .where(and(eq(jobs.state, 'running'), lt(jobs.leasedUntil, now), kinds ? inArray(jobs.kind, [...kinds]) : undefined)).returning({ id: jobs.id })).length);
 }
 
 /** Only terminal, reviewable states can be retried; a done job would repeat its side effect and a running one would double-execute. */

@@ -162,4 +162,22 @@ describe('jobs across Studios', () => {
     await vi.waitFor(() => expect(ran).toBe(1)); stop();
     expect(err).toHaveBeenCalled(); err.mockRestore();
   });
+  it('a worker tick recovers a job its crashed predecessor left running, and runs it', async () => {
+    const { db, as } = await fresh(); let ran = 0; const long = Date.now() - 120_000;
+    const stop = startWorker(db, { preview: async () => { ran++; } }, { intervalMs: 10, kinds: ['preview'] });
+    await new Promise((r) => setTimeout(r, 50)); // the worker is already up: boot-time recovery is behind it
+    await as((tx) => enqueue(tx, { kind: 'preview', payload: {}, runAt: long }));
+    await claimNext(db, long, ['preview']); // another worker took it, then died: running, lease expired a minute ago
+    expect((await oneJob(db)).state).toBe('running');
+    await vi.waitFor(() => expect(ran).toBe(1)); stop();
+    expect((await oneJob(db)).state).toBe('done');
+  });
+  it('recoverLeases only touches the kinds it is given', async () => {
+    const { db, as } = await fresh(); const long = T0 - 1e6;
+    await as((tx) => enqueue(tx, { kind: 'preview', payload: {}, runAt: long })); await as((tx) => enqueue(tx, { kind: 'send_email', payload: {}, runAt: long }));
+    await claimNext(db, long); await claimNext(db, long); // both running, leases expired
+    expect(await recoverLeases(db, T0, ['send_email'])).toBe(1);
+    const states = Object.fromEntries((await allJobs(db)).map((j) => [j.kind, j.state]));
+    expect(states).toEqual({ preview: 'running', send_email: 'pending' }); // the app must not recover jobs another machine may still be running
+  });
 });

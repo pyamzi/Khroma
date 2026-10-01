@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { makeWaker, pendingHeavy } from '../../src/server/jobs/wake.js';
+import { makeWaker, pendingHeavy, wakeOnPending } from '../../src/server/jobs/wake.js';
 import { enqueue, claimNext } from '../../src/server/jobs/queue.js';
+import { startWorker } from '../../src/server/jobs/worker.js';
 import { withStudio } from '../../src/server/db/tenancy.js';
 import { testDb, makeStudio } from '../helpers.js';
 
@@ -18,7 +19,8 @@ function stub(startStatus = 200) {
 describe('makeWaker', () => {
   it('starts the worker machine once per interval', async () => {
     const { fetch, calls } = stub(); const wake = makeWaker({ appName: 'og', token: 't0k', fetch });
-    await wake(); await new Promise((r) => setTimeout(r, 1)); await wake();
+    await wake();
+    for (const [, init] of vi.mocked(fetch).mock.calls) expect(init?.signal).toBeInstanceOf(AbortSignal); // a hung Machines API times out await new Promise((r) => setTimeout(r, 1)); await wake();
     expect(calls).toEqual([
       { url: 'https://api.machines.dev/v1/apps/og/machines?metadata.fly_process_group=worker', method: 'GET', auth: 'Bearer t0k' },
       { url: 'https://api.machines.dev/v1/apps/og/machines/m1/start', method: 'POST', auth: 'Bearer t0k' },
@@ -53,5 +55,31 @@ describe('pendingHeavy', () => {
     await add('preview', T + 1000); expect(await pendingHeavy(db, T)).toBe(false); // not due yet
     expect(await pendingHeavy(db, T + 1000)).toBe(true);
     await claimNext(db, T + 1000, ['preview']); expect(await pendingHeavy(db, T + 1001)).toBe(false); // already running
+  });
+  it('counts a heavy job left running past its lease (a crashed worker), not one still leased', async () => {
+    const db = await testDb(); const { studioId } = await makeStudio(db); const T = 1_700_000_000_000;
+    await withStudio(db, studioId, (tx) => enqueue(tx, { kind: 'preview', payload: {}, runAt: T }));
+    await claimNext(db, T, ['preview']); // running, leased until T + 60_000
+    expect(await pendingHeavy(db, T + 59_000)).toBe(false);
+    expect(await pendingHeavy(db, T + 61_000)).toBe(true);
+  });
+});
+
+describe('wakeOnPending', () => {
+  it('never holds up light claims, even when the Machines API hangs', async () => {
+    const db = await testDb(); const { studioId } = await makeStudio(db); let ran = 0;
+    await withStudio(db, studioId, (tx) => enqueue(tx, { kind: 'preview', payload: {} })); // heavy job pending: the wake fires
+    await withStudio(db, studioId, (tx) => enqueue(tx, { kind: 'send_email', payload: {} }));
+    const fetch = vi.fn(() => new Promise<Response>(() => {})) as unknown as typeof globalThis.fetch; // never resolves
+    const stop = startWorker(db, { send_email: async () => { ran++; } }, { intervalMs: 10, kinds: ['send_email'], onTick: wakeOnPending(db, makeWaker({ appName: 'og', token: 't', fetch })) });
+    await vi.waitFor(() => expect(ran).toBe(1), { timeout: 1000 }); stop();
+    expect(fetch).toHaveBeenCalled();
+  });
+  it('logs a failed wake instead of throwing', async () => {
+    const db = await testDb(); const { studioId } = await makeStudio(db);
+    await withStudio(db, studioId, (tx) => enqueue(tx, { kind: 'preview', payload: {} }));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await wakeOnPending(db, async () => { throw new Error('fly down'); })();
+    await vi.waitFor(() => expect(err).toHaveBeenCalledWith('[wake]', expect.any(Error))); err.mockRestore();
   });
 });
