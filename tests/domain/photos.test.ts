@@ -19,14 +19,15 @@ async function seed() {
 }
 
 describe('photos', () => {
-  it('stores the original, renders preview and thumb, sets size, and starts culling', async () => {
+  it('stores the original, renders thumb, medium and preview, sets size, and starts culling', async () => {
     const { db, studioId, storage, drain } = await seed();
     const { photoId } = await addPhoto(db, storage, { projectId: 'p1', relPath: 'raw/a.jpg', stage: 'culling', bytes: await jpegBytes(3000, 2000), name: 'a.jpg' });
     await drain();
     const k = (v: Parameters<typeof photoKey>[2]) => photoKey(studioId, photoId, v);
-    expect(storage.keys().sort()).toEqual([k('original'), k('preview'), k('thumb')].sort());
+    expect(storage.keys().sort()).toEqual([k('original'), k('preview'), k('medium'), k('thumb')].sort());
     expect(storage.keys().every((key) => key.startsWith(`s/${studioId}/p/${photoId}/`))).toBe(true);
     expect((await sharp((await storage.getBytes(k('preview')))!).metadata()).width).toBe(2048);
+    expect((await sharp((await storage.getBytes(k('medium')))!).metadata()).width).toBe(1280);
     expect((await sharp((await storage.getBytes(k('thumb')))!).metadata()).width).toBe(400);
     const [row] = await db.select().from(photos).where(eq(photos.id, photoId));
     expect([row!.width, row!.height, row!.live, row!.checksum.length]).toEqual([2048, 1365, true, 64]);
@@ -54,7 +55,7 @@ describe('photos', () => {
     const up = await uploadFinal(db, storage, { projectId: 'p1', name: 'a.jpg', bytes: await jpegBytes(60, 60), sourcePhotoId: raw.photoId, uploadId: 'u1', actor: 'plugin' });
     expect(up).toMatchObject({ photoId: live.photoId, replaced: true, draftRelPath: 'finals/.draft/a.jpg' });
     await drain();
-    for (const v of ['draft', 'preview.draft', 'thumb.draft'] as const) expect(await storage.getBytes(photoKey(studioId, live.photoId, v))).not.toBeNull();
+    for (const v of ['draft', 'preview.draft', 'medium.draft', 'thumb.draft'] as const) expect(await storage.getBytes(photoKey(studioId, live.photoId, v))).not.toBeNull();
     expect(await storage.getBytes(photoKey(studioId, live.photoId, 'thumb'))).toEqual(liveThumb);
     expect((await sharp((await storage.getBytes(photoKey(studioId, live.photoId, 'thumb.draft')))!).metadata()).width).toBe(60);
   });

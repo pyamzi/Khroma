@@ -11,6 +11,7 @@ import { project } from './selection.js';
 import { onCullingMediaAdded } from './transitions.js';
 
 export const PREVIEW_EDGE = 2048;
+export const MEDIUM_EDGE = 1280;
 export const THUMB_EDGE = 400;
 export class PhotoError extends Error { constructor(public code: 'unsupported') { super(code); this.name = 'PhotoError'; } }
 
@@ -25,7 +26,7 @@ export async function addPhoto(db: Db, storage: Storage, o: { projectId: string;
   if (o.stage === 'culling') await onCullingMediaAdded(db, o.projectId);
   return { photoId };
 }
-const TYPES: Record<string, string> = { jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', mp4: 'video/mp4', mov: 'video/quicktime' };
+const TYPES: Record<string, string> = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', mp4: 'video/mp4', mov: 'video/quicktime' };
 export const contentType = (_name: string, format: string) => TYPES[format] ?? 'application/octet-stream';
 
 /** Live and draft renditions never share an object; client routes serve only the live one. */
@@ -35,19 +36,20 @@ export function makePreviewHandlers(storage: Storage): Handlers {
       const { photoId } = payload as { photoId: string };
       const [p] = await db.select().from(photos).where(eq(photos.id, photoId)).limit(1);
       if (!p || p.kind === 'video') return; // video posters arrive later
-      const render = async (src: PhotoVariant, preview: PhotoVariant, thumb: PhotoVariant) => {
+      const render = async (src: PhotoVariant, preview: PhotoVariant, medium: PhotoVariant, thumb: PhotoVariant) => {
         const bytes = await storage.getBytes(photoKey(studioId, p.id, src));
         if (!bytes) throw new PreviewError(`no ${src} object`);
         const r = await extractPreview(bytes, PREVIEW_EDGE);
         await storage.put(photoKey(studioId, p.id, preview), r.jpeg, 'image/jpeg');
+        await storage.put(photoKey(studioId, p.id, medium), await makeThumb(r.jpeg, MEDIUM_EDGE), 'image/jpeg');
         await storage.put(photoKey(studioId, p.id, thumb), await makeThumb(r.jpeg, THUMB_EDGE), 'image/jpeg');
         if (p.stage === 'culling') return { width: r.width, height: r.height };
         const m = await sharp(bytes).metadata(); return { width: m.width ?? r.width, height: m.height ?? r.height }; // finals report their full size
       };
       try {
         let dims: { width: number; height: number } | null = null;
-        if (p.live) dims = await render('original', 'preview', 'thumb');
-        if (p.draftRelPath) { const d = await render('draft', 'preview.draft', 'thumb.draft'); dims ??= d; }
+        if (p.live) dims = await render('original', 'preview', 'medium', 'thumb');
+        if (p.draftRelPath) { const d = await render('draft', 'preview.draft', 'medium.draft', 'thumb.draft'); dims ??= d; }
         if (dims) await db.update(photos).set({ width: dims.width, height: dims.height }).where(eq(photos.id, p.id));
       } catch (e) {
         if (!(e instanceof PreviewError)) throw e;

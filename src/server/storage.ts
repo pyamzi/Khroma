@@ -16,7 +16,7 @@ export interface Storage {
   readonly dev?: true;
 }
 
-export type PhotoVariant = 'original' | 'draft' | 'preview' | 'preview.draft' | 'thumb' | 'thumb.draft';
+export type PhotoVariant = 'original' | 'draft' | 'preview' | 'preview.draft' | 'medium' | 'medium.draft' | 'thumb' | 'thumb.draft';
 export const photoKey = (studioId: string, photoId: string, variant: PhotoVariant) => `s/${studioId}/p/${photoId}/${variant}`;
 /** Outside `s/` so an R2 lifecycle rule can expire ZIPs. */
 export const zipKey = (studioId: string, projectId: string, hash: string) => `z/${studioId}/${projectId}/${hash}.zip`;

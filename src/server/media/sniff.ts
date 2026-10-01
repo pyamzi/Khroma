@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { extname } from 'node:path';
 
-export type Sniffed = { kind: 'photo' | 'video' | 'document' | 'audio'; format: 'jpeg' | 'png' | 'heic' | 'raw' | 'mp4' | 'mov' | 'pdf' | 'mp3' | 'm4a' | 'wav' };
+export type Sniffed = { kind: 'photo' | 'video' | 'document' | 'audio'; format: 'jpeg' | 'png' | 'webp' | 'heic' | 'raw' | 'mp4' | 'mov' | 'pdf' | 'mp3' | 'm4a' | 'wav' };
 
 const RAW_EXT = new Set(['.nef', '.cr2', '.cr3', '.arw', '.dng', '.raf', '.orf', '.rw2', '.pef', '.srw']);
 const EXT: Record<string, Sniffed> = {
-  '.jpg': { kind: 'photo', format: 'jpeg' }, '.jpeg': { kind: 'photo', format: 'jpeg' }, '.png': { kind: 'photo', format: 'png' },
+  '.jpg': { kind: 'photo', format: 'jpeg' }, '.jpeg': { kind: 'photo', format: 'jpeg' }, '.png': { kind: 'photo', format: 'png' }, '.webp': { kind: 'photo', format: 'webp' },
   '.heic': { kind: 'photo', format: 'heic' }, '.mp4': { kind: 'video', format: 'mp4' }, '.m4v': { kind: 'video', format: 'mp4' },
   '.mov': { kind: 'video', format: 'mov' }, '.pdf': { kind: 'document', format: 'pdf' }, '.mp3': { kind: 'audio', format: 'mp3' },
   '.m4a': { kind: 'audio', format: 'm4a' }, '.wav': { kind: 'audio', format: 'wav' },
@@ -27,6 +27,7 @@ export function sniffBytes(bytes: Uint8Array, name: string): Sniffed | null {
   const checks: Record<Sniffed['format'], () => boolean> = {
     jpeg: () => b[0] === 0xff && b[1] === 0xd8,
     png: () => b.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])),
+    webp: () => b.length >= 12 && b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP',
     heic: () => isFtyp(b, ['heic', 'heix', 'mif1']),
     mp4: () => isFtyp(b, ['isom', 'iso2', 'mp41', 'mp42', 'avc1', 'M4V']),
     mov: () => isFtyp(b, ['qt']),

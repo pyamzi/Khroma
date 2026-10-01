@@ -59,6 +59,7 @@ describe('app', () => {
     const img = await api(`/api/photos/${photos[0]!.id}/preview?size=thumb`, { cookie });
     expect(img.status).toBe(200); expect(img.headers.get('content-type')).toBe('image/jpeg');
     expect((await img.arrayBuffer()).byteLength).toBeGreaterThan(100);
+    expect((await api(`/api/photos/${photos[0]!.id}/preview?size=medium`, { cookie })).status).toBe(200);
     expect((await api(`/api/photos/${photos[0]!.id}/preview`)).status).toBe(404); // no session → not found, no leak
     await post('/api/auth/request', { email: 'stranger@x.com' }, ''); await drain();
     expect(mail.sent.length).toBe(before + 1); // unknown email: nothing sent, same 200

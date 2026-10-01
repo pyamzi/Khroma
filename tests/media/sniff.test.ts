@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import sharp from 'sharp';
 import { jpegBytes, pngBytes, tiffBytes, hexBytes } from '../fixtures/make.js';
 import { sniffBytes, sha256 } from '../../src/server/media/sniff.js';
 
@@ -16,6 +17,13 @@ describe('sniffBytes', () => {
     expect(sniffBytes(Buffer.from('MZ'), 'x.exe')).toBeNull();
     expect(sniffBytes(Buffer.from('not an image'), 'y.jpg')).toBeNull();
     expect(sniffBytes(new Uint8Array(0), 'empty.jpg')).toBeNull();
+  });
+});
+describe('sniffBytes webp', () => {
+  it('sniffs webp and rejects a .webp that is a png', async () => {
+    const webp = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#000' } }).webp().toBuffer();
+    expect(sniffBytes(webp, 'a.webp')).toEqual({ kind: 'photo', format: 'webp' });
+    expect(sniffBytes(await pngBytes(), 'a.webp')).toBeNull();
   });
 });
 describe('sha256', () => {
