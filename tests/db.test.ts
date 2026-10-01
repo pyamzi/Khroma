@@ -99,7 +99,11 @@ describe('database', () => {
           ('raw', 's', 'p', 'raw/a.dng', 'culling', 'photo', ''), ('fin', 's', 'p', 'finals/a.jpg', 'final', 'photo', '');
         insert into photos (id, studio_id, project_id, rel_path, draft_rel_path, live, stage, kind, checksum) values
           ('draft', 's', 'p', 'finals/b.jpg', 'finals/.draft/b.jpg', false, 'final', 'photo', ''), ('livedraft', 's', 'p', 'finals/c.jpg', 'finals/.draft/c.jpg', true, 'final', 'photo', '');`);
+      // an owner with no BYPASSRLS and no inherited policy roles (as on Neon): policies exist only for og_app and og_system, so a plain owner UPDATE would match nothing
+      await pg.exec(`create role mig login noinherit; grant create on database postgres to mig; grant og_app, og_system to mig; grant all on schema public, drizzle to mig; grant all on all tables in schema drizzle to mig; grant all on all sequences in schema drizzle to mig;
+        do $$ declare t text; begin for t in select tablename from pg_tables where schemaname = 'public' loop execute format('alter table %I owner to mig', t); end loop; end $$; set role mig;`);
       await migrate(db, { migrationsFolder });
+      await pg.exec('reset role');
       expect((await pg.query<{ id: string; in_library: boolean }>('select id, in_library from photos order by id')).rows).toEqual([{ id: 'draft', in_library: false }, { id: 'fin', in_library: true }, { id: 'livedraft', in_library: true }, { id: 'raw', in_library: false }]);
     } finally { await pg.close(); }
   });

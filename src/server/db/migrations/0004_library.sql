@@ -8,4 +8,7 @@ ALTER TABLE "photos" ADD COLUMN "ready_at" text;--> statement-breakpoint
 ALTER TABLE "photos" ADD COLUMN "purged_at" text;--> statement-breakpoint
 CREATE INDEX "photos_studio_library" ON "photos" USING btree ("studio_id","in_library","created_at");--> statement-breakpoint
 -- Culling RAWs and unpublished final drafts are working files, not Library photos. A live final (even with a replacement draft) stays in_library.
-UPDATE photos SET in_library = false WHERE stage = 'culling' OR (stage = 'final' AND live = false);
+-- Row-level security is forced and its policies name only og_app and og_system, so the owner runs this as og_system (an owner without BYPASSRLS would match no rows).
+SET LOCAL ROLE og_system;--> statement-breakpoint
+UPDATE photos SET in_library = false WHERE stage = 'culling' OR (stage = 'final' AND live = false);--> statement-breakpoint
+RESET ROLE;
