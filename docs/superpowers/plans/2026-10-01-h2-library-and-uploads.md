@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-30-opengallery-hosted-design.md` (§4 Library, §7 data model, §12 item 2). Rules it inherits: `docs/superpowers/specs/2026-09-10-opengallery-design.md` §5–§6 and §10 (publishing, download entitlement).
 
-**Runs after:** `docs/superpowers/plans/2026-10-01-h1-5-better-auth.md` (sign-in moves to Better Auth; its migration is `0002_auth.sql`). Where this plan says "admin" or "session", it means H1.5's `Viewer`.
+**Runs after:** `docs/superpowers/plans/2026-10-01-h1-5-better-auth.md` (sign-in moves to Better Auth; H1.5 has two migrations: `0002_auth.sql` and `0003_retire_h1_sessions.sql`). Where this plan says "admin" or "session", it means H1.5's `Viewer`.
 
 **Scope decision (made by the planner; the owner declined to choose):** "Finals delivery from R2" means the delivery core: publish drafts to live, the Client finals view, favorites, and single and ZIP downloads. Share passwords and guests, music and slideshow, sections, order and cover, and gallery expiry move to a follow-up milestone (H2b). The half-built Milestone 5 worktree (`OpenGallery.worktrees/implement-opengallery-milestone-5`) is reference only; its download-entitlement and publish-guard rules are ported below, nothing is copied from its file-based code.
 
@@ -39,7 +39,7 @@
 
 | File | Responsibility |
 | --- | --- |
-| `src/server/db/schema.ts`, `src/server/db/migrations/0003_library.sql` | Photo columns for Library and processing state |
+| `src/server/db/schema.ts`, `src/server/db/migrations/0004_library.sql` | Photo columns for Library and processing state |
 | `src/server/storage.ts` | Adds `presignPut`, `presignGet`, `copy`, `exists`; dev upload route support for memory storage |
 | `src/server/jobs/queue.ts`, `src/server/jobs/worker.ts`, `src/server/jobs/wake.ts`, `src/server/worker.ts` | Job kinds per machine, waking and idling the processing machine |
 | `src/server/media/sniff.ts`, `src/server/media/metadata.ts`, `src/server/media/convert.ts`, `src/server/media/previews.ts` | WebP signature, EXIF/keywords/caption, HEIC→JPEG, three web sizes |
@@ -55,7 +55,7 @@
 
 **Files:**
 - Modify: `src/server/db/schema.ts` (photos table), `src/server/http/access.ts` (`loadPhoto`), `src/server/domain/photos.ts` (`addPhoto`)
-- Create: `src/server/db/migrations/0003_library.sql` via `npm run db:generate`, then append the data fix by hand
+- Create: `src/server/db/migrations/0004_library.sql` via `npm run db:generate`, then append the data fix by hand
 - Test: `tests/db.test.ts`, `tests/http/access.test.ts`, `tests/domain/photos.test.ts`
 
 **Interfaces:**
@@ -89,7 +89,7 @@ it('a Library photo is reachable by its Studio admin only', async () => {
 Run: `npx vitest run tests/db.test.ts tests/http/access.test.ts tests/domain/photos.test.ts`
 Expected: FAIL (`project_id` not null violation; unknown columns).
 
-- [ ] **Step 3: Change the schema, generate `0003_library.sql`, and append `UPDATE photos SET in_library = false WHERE stage = 'culling';`**
+- [ ] **Step 3: Change the schema, generate `0004_library.sql`, and append `UPDATE photos SET in_library = false WHERE stage = 'culling';`**
 
 `projectId` loses `.notNull()`; the composite FK `(studio_id, project_id)` stays (a null `project_id` skips the check under MATCH SIMPLE). Keep `photos_project_path` unchanged; null project rows never collide. Update `loadPhoto` as described.
 
