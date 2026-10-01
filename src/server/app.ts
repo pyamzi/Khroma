@@ -21,6 +21,7 @@ import { settingsRoutes } from './http/routes/settings.js';
 import { dashboardRoutes } from './http/routes/dashboard.js';
 import { pluginRoutes } from './http/routes/plugin.js';
 import { libraryRoutes } from './http/routes/library.js';
+import { deliveryRoutes } from './http/routes/delivery.js';
 
 export type AppDeps = { db: Db; config: Config; storage: Storage; auth: Auth; webRoot?: string };
 
@@ -92,7 +93,7 @@ export function createApp({ db, config, storage, auth, webRoot = './dist/web' }:
   app.use('/api/*', requestTx(db));
   app.route('/', meRoutes()); app.route('/', projectRoutes()); app.route('/', photoRoutes());
   app.route('/', selectionRoutes(config)); app.route('/', commentRoutes());
-  app.route('/', adminRoutes()); app.route('/', settingsRoutes(config)); app.route('/', dashboardRoutes()); app.route('/', pluginRoutes()); app.route('/', libraryRoutes());
+  app.route('/', adminRoutes()); app.route('/', settingsRoutes(config)); app.route('/', dashboardRoutes()); app.route('/', pluginRoutes()); app.route('/', libraryRoutes()); app.route('/', deliveryRoutes(config));
   if (storage.dev) { // memory storage only: stands in for R2's presigned URLs, outside /api/* on purpose (no CSRF header, body limit or transaction; the URL is the capability)
     const keyOf = (path: string) => decodeURIComponent(path.slice('/dev/storage/'.length));
     app.put('/dev/storage/*', async (c) => {

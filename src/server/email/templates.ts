@@ -1,4 +1,4 @@
-export type TemplateName = 'magic_link' | 'test_delivery' | 'culling_finished' | 'extras_requested';
+export type TemplateName = 'magic_link' | 'test_delivery' | 'culling_finished' | 'extras_requested' | 'gallery_ready';
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const shell = (title: string, body: string) =>
   `<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;max-width:560px;margin:40px auto;padding:0 20px;color:#111"><h1 style="font-size:20px">${esc(title)}</h1>${body}</body></html>`;
@@ -23,6 +23,11 @@ const T: Record<TemplateName, (v: Record<string, string>) => { subject: string; 
     subject: `${v.by} wants ${v.count} extra photos · ${v.project}`,
     text: `${v.by} asked for ${v.count} extra photos on ${v.project}. Grant them or send an invoice:\n\n${v.url}`,
     html: shell(`${v.project ?? ''}: extra photos requested`, `<p>${esc(v.by ?? '')} asked for <strong>${esc(v.count ?? '')}</strong> extra photos.</p><p><a href="${esc(v.url ?? '')}">Open the project</a></p>`),
+  }),
+  gallery_ready: (v) => ({
+    subject: `Your photos are ready · ${v.project}`,
+    text: `${v.studio} has published your photos from ${v.project}. View your gallery:\n\n${v.url}`,
+    html: shell(`${v.project ?? ''}: your photos are ready`, `<p>${esc(v.studio ?? '')} has published your photos.</p><p><a href="${esc(v.url ?? '')}" style="display:inline-block;padding:12px 18px;background:#111;color:#fff;border-radius:10px;text-decoration:none">View your gallery</a></p>`),
   }),
 };
 export function renderTemplate(name: TemplateName, vars: Record<string, string>) { return T[name](vars); }

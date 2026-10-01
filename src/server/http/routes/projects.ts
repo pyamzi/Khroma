@@ -30,7 +30,7 @@ export const projectRoutes = () => new Hono<AppEnv>()
     const submittedIds = new Set((await db.select({ id: picks.photoId }).from(picks).where(and(eq(picks.projectId, p.id), lt(picks.round, p.currentRound)))).map((r) => r.id));
     const done = rows.filter((r) => submittedIds.has(r.id) && r.editState === 'done').length;
     return c.json({
-      ...summaryOf(p), viewerEmail: s.subject, selection: await summary(db, p.id), comments: meta.comments, progress: { done, total: submittedIds.size },
+      ...summaryOf(p), stateVersion: p.stateVersion, viewerEmail: s.subject, selection: await summary(db, p.id), comments: meta.comments, progress: { done, total: submittedIds.size },
       counts: { culling: rows.filter((r) => r.stage === 'culling').length, final: rows.filter((r) => r.stage === 'final' && !r.draftRelPath).length, drafts: rows.filter((r) => r.draftRelPath).length },
     });
   })

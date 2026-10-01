@@ -7,12 +7,12 @@ import { Viewer } from '../components/Viewer';
 import { Sheet } from '../components/Sheet';
 import { Shell } from './Shell';
 import { Button, Empty, Input, Pill, Row, Segmented, Select, Toast } from './ui';
-import { PRODUCTION, ago, type EventRow, type Insights, type User } from './api';
+import { PRODUCTION, ago, publishFinals, type EventRow, type Insights, type User } from './api';
 
 type Seg = 'photos' | 'activity' | 'insights' | 'details';
 type Detail = ProjectDetail;
 type Full = { title: string; date: string | null; assignedTo: string | null; downloads: 'client' | 'password' | 'none'; comments: { culling: boolean; finals: boolean }; notifyOnPublish: boolean; expiresAt: string | null };
-const EVENT: Record<string, string> = { picked: 'picked a photo', unpicked: 'unpicked a photo', commented: 'commented', comment_resolved: 'resolved a comment', finished_culling: 'finished picking', extras_requested: 'asked for extra photos', slots_granted: 'granted slots', allowance_changed: 'changed the allowance', price_changed: 'changed the extra price', production_changed: 'moved the project', viewed: 'viewed the project', project_updated: 'updated details', project_created: 'created the project', preview_failed: 'preview failed', replaced_externally: 'replaced a live final on disk', media_renamed_externally: 'renamed a media file on disk', photo_remapped: 'relinked a photo', round_cancelled: 'cancelled the round', transferred: 'transferred the project', reordered: 'reordered finals', uploaded: 'uploaded a file', trashed: 'moved to trash', restored: 'restored from trash' };
+const EVENT: Record<string, string> = { picked: 'picked a photo', unpicked: 'unpicked a photo', commented: 'commented', comment_resolved: 'resolved a comment', finished_culling: 'finished picking', finals_published: 'published finals', extras_requested: 'asked for extra photos', slots_granted: 'granted slots', allowance_changed: 'changed the allowance', price_changed: 'changed the extra price', production_changed: 'moved the project', viewed: 'viewed the project', project_updated: 'updated details', project_created: 'created the project', preview_failed: 'preview failed', replaced_externally: 'replaced a live final on disk', media_renamed_externally: 'renamed a media file on disk', photo_remapped: 'relinked a photo', round_cancelled: 'cancelled the round', transferred: 'transferred the project', reordered: 'reordered finals', uploaded: 'uploaded a file', trashed: 'moved to trash', restored: 'restored from trash' };
 
 export function Project({ id, me }: { id: string; me: Me }) {
   const [p, setP] = useState<Detail | null>(null); const [seg, setSeg] = useState<Seg>('photos');
@@ -52,12 +52,19 @@ export function Project({ id, me }: { id: string; me: Me }) {
     ids.splice(b, 0, ids.splice(a, 1)[0]!); setPhotos(ids.map((x) => photos.find((y) => y.id === x)!));
     await run(() => post('/photos/order', { ids }));
   };
+  const publish = async () => {
+    try {
+      const drafts = (await api<PhotoItem[]>(`/api/projects/${id}/photos?stage=final`)).filter((x) => x.hasDraft).map((x) => x.id);
+      const r = await publishFinals(id, drafts, p.stateVersion); setToast(`Published ${r.published}`);
+    } catch (e) { setToast(e instanceof ApiError && e.status === 409 ? 'The project changed. Reloaded; try again.' : e instanceof ApiError ? `Error: ${e.message}` : 'Something went wrong'); }
+    await load();
+  };
   const saveDetails = (e: FormEvent) => { e.preventDefault(); if (form) void run(() => post('', form, 'PATCH'), 'Saved'); };
 
   const actions = <>
     {prod === 'not_started' && <Button onClick={() => void run(() => post('/shot', {}), 'Marked as shot')}>Mark shot</Button>}
     {prod === 'culling' && <><Button onClick={() => setSheet('grant')}>Grant slots</Button><Button kind="secondary" onClick={() => setSheet('allowance')}>Allowance</Button></>}
-    {prod === 'editing' && <Button disabled title="Publishing arrives with milestone 5">Publish</Button>}
+    {(prod === 'editing' || prod === 'delivered') && p.counts.drafts > 0 && <Button onClick={() => void publish()}>Publish {p.counts.drafts}</Button>}
     <Button kind="secondary" onClick={() => setSheet('more')} aria-label="More actions">…</Button>
   </>;
 
