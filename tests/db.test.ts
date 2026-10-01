@@ -84,7 +84,7 @@ describe('database', () => {
       expect((await pg.query(`select 1 from information_schema.columns where table_name = 'sessions' and column_name in ('login_token_hash', 'redeemed_at')`)).rows).toEqual([]);
     } finally { await pg.close(); }
   });
-  it('migration 0004 takes culling RAWs out of the Library and leaves finals in', async () => {
+  it('migration 0004 takes culling RAWs and unpublished drafts out of the Library and leaves live finals in', async () => {
     const before = await tmpDir(); await cp(migrationsFolder, before, { recursive: true });
     const journal = JSON.parse(await readFile(join(before, 'meta/_journal.json'), 'utf8')) as { entries: { tag: string }[] };
     const last = journal.entries.pop()!; expect(last.tag).toBe('0004_library');
@@ -96,9 +96,11 @@ describe('database', () => {
         insert into clients (id, studio_id, name, emails) values ('c', 's', 'C', '[]');
         insert into projects (id, studio_id, client_id, metadata_json) values ('p', 's', 'c', '{}');
         insert into photos (id, studio_id, project_id, rel_path, stage, kind, checksum) values
-          ('raw', 's', 'p', 'raw/a.dng', 'culling', 'photo', ''), ('fin', 's', 'p', 'finals/a.jpg', 'final', 'photo', '');`);
+          ('raw', 's', 'p', 'raw/a.dng', 'culling', 'photo', ''), ('fin', 's', 'p', 'finals/a.jpg', 'final', 'photo', '');
+        insert into photos (id, studio_id, project_id, rel_path, draft_rel_path, live, stage, kind, checksum) values
+          ('draft', 's', 'p', 'finals/b.jpg', 'finals/.draft/b.jpg', false, 'final', 'photo', ''), ('livedraft', 's', 'p', 'finals/c.jpg', 'finals/.draft/c.jpg', true, 'final', 'photo', '');`);
       await migrate(db, { migrationsFolder });
-      expect((await pg.query<{ id: string; in_library: boolean }>('select id, in_library from photos order by id')).rows).toEqual([{ id: 'fin', in_library: true }, { id: 'raw', in_library: false }]);
+      expect((await pg.query<{ id: string; in_library: boolean }>('select id, in_library from photos order by id')).rows).toEqual([{ id: 'draft', in_library: false }, { id: 'fin', in_library: true }, { id: 'livedraft', in_library: true }, { id: 'raw', in_library: false }]);
     } finally { await pg.close(); }
   });
 });
