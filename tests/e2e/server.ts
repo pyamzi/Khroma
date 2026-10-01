@@ -6,6 +6,7 @@ import { openDb } from '../../src/server/db/client.js';
 import { asSystem, withStudio } from '../../src/server/db/tenancy.js';
 import { users } from '../../src/server/db/schema.js';
 import { createApp } from '../../src/server/app.js';
+import { createAuth } from '../../src/server/auth/better.js';
 import { signup } from '../../src/server/auth/signup.js';
 import { startWorker } from '../../src/server/jobs/worker.js';
 import { runOnce } from '../../src/server/jobs/queue.js';
@@ -36,7 +37,7 @@ export async function startTestServer() {
   while ((await runOnce(db, handlers)) === 'ran') { /* previews and the signup email */ }
   mail.sent.length = 0; // drop the signup email
   const stopWorker = startWorker(db, handlers, { intervalMs: 200 });
-  const server = serve({ fetch: createApp({ db, config, storage, webRoot: './dist/web' }).fetch, port });
+  const server = serve({ fetch: createApp({ db, config, storage, auth: createAuth({ root: db, config, getTransport: () => mail }), webRoot: './dist/web' }).fetch, port });
   const signInLink = async (email: string): Promise<string> => {
     const before = mail.sent.length;
     await fetch(`${baseUrl}/api/auth/request`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: JSON.stringify({ email }) });

@@ -1,5 +1,6 @@
 import { loadConfig } from '../../src/server/config.js';
 import { createApp } from '../../src/server/app.js';
+import { createAuth } from '../../src/server/auth/better.js';
 import { runOnce } from '../../src/server/jobs/queue.js';
 import { makeEmailHandlers } from '../../src/server/email/send.js';
 import { memoryTransport } from '../../src/server/email/transport.js';
@@ -18,7 +19,8 @@ export type Init = RequestInit & { cookie?: string; bearer?: string };
 export async function boot() {
   const db = await testDb(); const storage = memoryStorage(); const mail = memoryTransport();
   const config = loadConfig({ DATABASE_URL: 'pglite://memory', BASE_URL: BASE });
-  const app = createApp({ db, config, storage, webRoot: await tmpDir() });
+  const auth = createAuth({ root: db, config, getTransport: () => mail });
+  const app = createApp({ db, config, storage, auth, webRoot: await tmpDir() });
   const handlers = { ...makeEmailHandlers(() => mail, 'localhost'), ...makePreviewHandlers(storage) };
   const drain = async () => { while ((await runOnce(db, handlers)) === 'ran') { /* drain */ } };
   const api = (path: string, init: Init = {}) => app.request(path, { ...init, headers: {
@@ -50,5 +52,5 @@ export async function boot() {
     const p = await json<{ id: string }>(await post('/api/projects', { clientId: cl.id, title: o.title ?? 'Wedding', included: o.included ?? 0, extraPrice: o.extraPrice ?? 0 }, owner));
     return { clientId: cl.id, projectId: p.id };
   };
-  return { db, app, storage, mail, config, drain, api, post, json, signIn, signupOwner, redeemLatest, addCulling, seedProject };
+  return { db, app, auth, storage, mail, config, drain, api, post, json, signIn, signupOwner, redeemLatest, addCulling, seedProject };
 }

@@ -4,6 +4,7 @@ import { bodyLimit } from 'hono/body-limit';
 import type { Db } from './db/client.js';
 import type { Config } from './config.js';
 import type { Storage } from './storage.js';
+import type { Auth } from './auth/better.js';
 import { withStudio, anonTx } from './db/tenancy.js';
 import { sessionMiddleware, type AppEnv } from './http/session.js';
 import { systemRoutes, meRoutes } from './http/routes/auth.js';
@@ -16,7 +17,7 @@ import { settingsRoutes } from './http/routes/settings.js';
 import { dashboardRoutes } from './http/routes/dashboard.js';
 import { pluginRoutes } from './http/routes/plugin.js';
 
-export type AppDeps = { db: Db; config: Config; storage: Storage; webRoot?: string };
+export type AppDeps = { db: Db; config: Config; storage: Storage; auth: Auth; webRoot?: string };
 
 class Rollback extends Error {}
 /**
@@ -43,7 +44,7 @@ export function requestTx(root: Db): MiddlewareHandler<AppEnv> {
 export const MAX_BODY_BYTES = 100 * 1024 * 1024; // ponytail: finals arrive as JPEGs through the app until H2 moves uploads to presigned R2 URLs
 export const onError: ErrorHandler<AppEnv> = (e, c) => { console.error('[http]', c.req.method, c.req.path, e); return c.json({ error: 'internal' }, 500); };
 
-export function createApp({ db, config, storage, webRoot = './dist/web' }: AppDeps): Hono<AppEnv> {
+export function createApp({ db, config, storage, auth, webRoot = './dist/web' }: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.onError(onError);
   app.use('*', async (c, next) => {
@@ -63,6 +64,7 @@ export function createApp({ db, config, storage, webRoot = './dist/web' }: AppDe
   app.use('*', sessionMiddleware(db));
   app.use('*', async (c, next) => { c.set('storage', storage); await next(); });
   app.route('/', systemRoutes(config)); // registered before the request transaction: these open their own system transactions
+  app.get('/api/ba/magic-link/verify', (c) => auth.handler(c.req.raw)); // the only Better Auth route that is public; sign-in links are sent by the job queue
   app.use('/api/*', requestTx(db));
   app.route('/', meRoutes()); app.route('/', projectRoutes()); app.route('/', photoRoutes());
   app.route('/', selectionRoutes(config)); app.route('/', commentRoutes());

@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import { loadConfig } from './config.js';
 import { openDb } from './db/client.js';
 import { createApp } from './app.js';
+import { createAuth } from './auth/better.js';
 import { startWorker } from './jobs/worker.js';
 import { makeEmailHandlers } from './email/send.js';
 import { smtpTransport } from './email/transport.js';
@@ -20,7 +21,7 @@ async function main() {
   const stopWorker = startWorker(db, handlers, { intervalMs: 2000 });
   const sweep = () => void sweepUnconfirmedStudios(db).then((n) => n && console.log(`[sweep] removed ${n} unconfirmed studios`)).catch((e) => console.error('[sweep]', e));
   const sweeper = setInterval(sweep, 3600_000); sweep();
-  const server = serve({ fetch: createApp({ db, config, storage }).fetch, port: config.port }, () => console.log(`[boot] listening on ${config.port}`));
+  const server = serve({ fetch: createApp({ db, config, storage, auth: createAuth({ root: db, config, getTransport: () => transport }) }).fetch, port: config.port }, () => console.log(`[boot] listening on ${config.port}`));
   const shutdown = () => { stopWorker(); clearInterval(sweeper); server.close(() => void close().finally(() => process.exit(0))); };
   process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown);
 }
