@@ -70,8 +70,9 @@ export function r2Storage(o: { accountId: string; accessKeyId: string; secretAcc
     // A file stream with an explicit content-length (R2 rejects chunked PUTs); a whole-file Blob body makes undici read it all into memory.
     // With x-amz-content-sha256: UNSIGNED-PAYLOAD (aws4fetch's own default for s3 header signing, set here explicitly) aws4fetch never hashes or reads the body.
     async putFile(key, path, contentType) {
+      const { size } = await stat(path); // before opening the stream, so a failing stat leaks no fd
       const body = Readable.toWeb(createReadStream(path)) as unknown as BodyInit;
-      await call('PUT', key, { body, duplex: 'half', headers: { 'content-type': contentType, 'content-length': String((await stat(path)).size), 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' } } as RequestInit);
+      await call('PUT', key, { body, duplex: 'half', headers: { 'content-type': contentType, 'content-length': String(size), 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' } } as RequestInit);
     },
     async size(key) { const res = await call('HEAD', key); return res.status === 404 ? null : Number(res.headers.get('content-length') ?? 0); },
     async get(key) {

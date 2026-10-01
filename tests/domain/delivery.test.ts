@@ -7,10 +7,10 @@ import { defaultProjectMeta } from '../../src/server/domain/meta.js';
 import { addPhoto } from '../../src/server/domain/photos.js';
 import { setPick } from '../../src/server/domain/selection.js';
 import { uploadFinal } from '../../src/server/domain/finals.js';
-import { publishFinals, DeliveryError, makeDeliveryHandlers, downloadStatus, liveSetHash, requestDownload, zipEntryNames, cleanName } from '../../src/server/domain/delivery.js';
+import { publishFinals, DeliveryError, makeDeliveryHandlers, makeZipHandlers, downloadStatus, liveSetHash, requestDownload, zipEntryNames, cleanName } from '../../src/server/domain/delivery.js';
 import { tiffBytes } from '../fixtures/make.js';
 import type { Db } from '../../src/server/db/client.js';
-import type { Handler } from '../../src/server/jobs/queue.js';
+import { NeedsReview, type Handler } from '../../src/server/jobs/queue.js';
 import { studioTestDb } from '../helpers.js';
 
 const jpeg = (bg = '#c33') => sharp({ create: { width: 40, height: 30, channels: 3, background: bg } }).jpeg().toBuffer();
@@ -194,6 +194,18 @@ describe('downloads', () => {
     const ev = (await db.select().from(events).where(eq(events.type, 'downloaded'))); expect(ev.map((e) => [e.actor, e.payload])).toEqual([['s@x.com', { item: f }]]);
     await setMeta(db, { downloads: 'none' });
     expect(await code(requestDownload(db, spy, { projectId: pid, photoId: f, actor: 's@x.com' }))).toBe('disabled');
+  });
+
+  it('build_zip sums every original before the 3 GiB cap: three 2 GiB photos go to review and nothing is downloaded', async () => {
+    const { db, storage, studioId, src, src2, draft, pub } = await seed();
+    await pub([await draft('A.jpg', src), await draft('B.jpg', src2), await draft('C.jpg', src)]);
+    expect(await requestDownload(db, storage, { projectId: pid, actor: 's@x.com' })).toEqual({ preparing: true });
+    const [job] = (await db.select().from(jobs)).filter((j) => j.kind === 'build_zip');
+    let gets = 0;
+    const big: Storage = { ...storage, size: async () => 2 * 1024 ** 3, get: async (k) => { gets++; return storage.get(k); } };
+    const err = await (makeZipHandlers(big).build_zip as Handler)(job!.payload, { db, jobId: job!.id, studioId }).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(NeedsReview); expect((err as Error).message).toBe('too_large');
+    expect(gets).toBe(0);
   });
 
   it('download names: control characters stripped, ZIP entries unique case-insensitively', () => {

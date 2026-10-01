@@ -173,8 +173,9 @@ export function makeZipHandlers(storage: Storage): Handlers {
       const rows = await liveFinals(db, projectId);
       const key = zipKey(studioId, projectId, hash);
       if (setHash(rows) !== hash || (await storage.exists(key))) return;
-      let total = 0; await pool(rows, 8, async (r) => { total += (await storage.size(photoKey(studioId, r.id, 'original'))) ?? 0; });
-      if (total > ZIP_MAX_BYTES) throw new NeedsReview('too_large');
+      const sizes: number[] = []; // collected, then summed: `total += await …` in a pool reads `total` before the await and loses updates
+      await pool(rows, 8, async (r) => { sizes.push((await storage.size(photoKey(studioId, r.id, 'original'))) ?? 0); });
+      if (sizes.reduce((a, b) => a + b, 0) > ZIP_MAX_BYTES) throw new NeedsReview('too_large');
       const dir = await mkdtemp(join(tmpdir(), 'og-zip-')); const files = join(dir, 'files');
       try {
         await mkdir(files); const names = zipEntryNames(rows.map((r) => r.relPath));
