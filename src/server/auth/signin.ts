@@ -23,7 +23,7 @@ export function makeSignInHandlers(auth: Auth, config: Config): Handlers {
       const { fromName, replyTo } = await asSystem(root, async (tx) => {
         const [s] = await tx.select({ name: studios.name, confirmedAt: studios.confirmedAt }).from(studios).where(eq(studios.id, studioId)).limit(1);
         const [owner] = await tx.select({ email: users.email }).from(users).where(and(eq(users.studioId, studioId), eq(users.role, 'owner'))).orderBy(asc(users.createdAt)).limit(1);
-        return { fromName: s?.confirmedAt ? s.name : 'Khroma', replyTo: owner?.email ?? null }; // an unconfirmed Studio's chosen name is not trusted yet
+        return { fromName: s?.confirmedAt ? s.name : 'Kreate', replyTo: owner?.email ?? null }; // an unconfirmed Studio's chosen name is not trusted yet
       });
       await auth.api.signInMagicLink({ body: { email, callbackURL: continueUrl(config.betterAuthSecret, { studioId, kind, iat: Date.now(), email }), metadata: { studioId, kind, fromName, replyTo } }, headers: new Headers() });
     } },

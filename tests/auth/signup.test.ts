@@ -39,15 +39,15 @@ describe('signup', () => {
 
 describe('unconfirmed signups (final review)', () => {
   const studioRows = (db: Awaited<ReturnType<typeof testDb>>) => asSystem(db, (tx) => tx.select().from(studios));
-  it('signup sends one link from Khroma; after confirming, links come from the Studio name', async () => {
+  it('signup sends one link from Kreate; after confirming, links come from the Studio name', async () => {
     const s = await boot();
     await asSystem(s.db, (tx) => signup(tx, { email: 'o@x.com', studioName: 'Your Bank', baseUrl: base }));
     await s.drain();
-    expect(s.mail.sent.map((m) => [m.fromName, m.subject, m.replyTo])).toEqual([['Khroma', 'Sign in to Khroma', 'o@x.com']]); // unconfirmed: the platform speaks
+    expect(s.mail.sent.map((m) => [m.fromName, m.subject, m.replyTo])).toEqual([['Kreate', 'Sign in to Kreate', 'o@x.com']]); // unconfirmed: the platform speaks
     expect((await me(s, await s.redeemLatest('o@x.com'))).studio.name).toBe('Your Bank');
     expect((await studioRows(s.db))[0]!.confirmedAt).not.toBeNull();
     await asSystem(s.db, (tx) => requestSignIn(tx, { email: 'o@x.com', baseUrl: base })); await s.drain();
-    expect(s.mail.sent.map((m) => [m.fromName, m.subject])).toEqual([['Khroma', 'Sign in to Khroma'], ['Your Bank', 'Sign in to Your Bank']]);
+    expect(s.mail.sent.map((m) => [m.fromName, m.subject])).toEqual([['Kreate', 'Sign in to Kreate'], ['Your Bank', 'Sign in to Your Bank']]);
   });
   it('signing up again before confirming takes the new name (the real owner reclaims a squatted email)', async () => {
     const db = await testDb();

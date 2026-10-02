@@ -24,8 +24,8 @@ end
 LrTasks.startAsyncTask(function()
   local catalog = LrApplication.activeCatalog()
   local links = linkedCollections(catalog)
-  if #links == 0 then LrDialogs.message('No Khroma collections', 'Create a publish collection linked to a project first.', 'info') return end
-  local progress = LrProgressScope { title = 'Syncing picks from Khroma' }
+  if #links == 0 then LrDialogs.message('No Kreate collections', 'Create a publish collection linked to a project first.', 'info') return end
+  local progress = LrProgressScope { title = 'Syncing picks from Kreate' }
   local report = {}
   for i, link in ipairs(links) do
     progress:setPortionComplete(i - 1, #links)
@@ -43,8 +43,8 @@ LrTasks.startAsyncTask(function()
       local key = 'flagged:' .. link.cs.projectId
       local previous = {}
       pcall(function() previous = json.decode(catalog:getPropertyForPlugin(_PLUGIN, key) or '[]') end)
-      catalog:withWriteAccessDo('Khroma picks', function()
-        local set = catalog:createCollectionSet('Khroma', nil, true)
+      catalog:withWriteAccessDo('Kreate picks', function()
+        local set = catalog:createCollectionSet('Kreate', nil, true)
         local coll = catalog:createCollection((link.cs.projectTitle or link.name) .. ' – Picks', set, true)
         local lrPhotos, flaggedNow = {}, {}
         for _, e in ipairs(photos) do
@@ -68,5 +68,5 @@ LrTasks.startAsyncTask(function()
     end
   end
   progress:done()
-  LrDialogs.message('Khroma picks', table.concat(report, '\n'), 'info')
+  LrDialogs.message('Kreate picks', table.concat(report, '\n'), 'info')
 end)

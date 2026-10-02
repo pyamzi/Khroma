@@ -1,4 +1,4 @@
-export const USER_AGENT = 'Khroma-FreeMediaMCP/0.1 (+https://khroma.ink)';
+export const USER_AGENT = 'Kreate-FreeMediaMCP/0.1 (+https://kreate.so)';
 
 export class HttpError extends Error {
   constructor(public readonly status: number, url: string) {

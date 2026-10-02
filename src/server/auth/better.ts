@@ -29,7 +29,7 @@ export function createAuth(o: { root: Db; config: Config; getTransport: () => Tr
         if (!m?.studioId || !m.kind) throw new Error('sign-in links are sent by the job queue only');
         const transport = getTransport();
         if (!transport) throw new Error('email transport is not configured');
-        const fromName = m.fromName ?? 'Khroma';
+        const fromName = m.fromName ?? 'Kreate';
         await transport.send({ to: email, ...renderTemplate('magic_link', { studio: fromName, url }), messageId: `<magic:${randomUUID()}@${domain}>`, fromName, replyTo: m.replyTo ?? null });
       },
     })],

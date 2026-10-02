@@ -12,7 +12,7 @@ describe('app', () => {
     const { api, post, app, mail, drain } = await boot();
     const r = await post('/api/signup', { email: 'Owner@X.com', studioName: 'Lumen', over18: true }, '');
     expect(r.status).toBe(200); expect(await r.json()).toEqual({ ok: true });
-    await drain(); expect(mail.sent).toHaveLength(1); expect(mail.sent[0]).toMatchObject({ to: 'owner@x.com', fromName: 'Khroma' }); // unconfirmed: the platform speaks
+    await drain(); expect(mail.sent).toHaveLength(1); expect(mail.sent[0]).toMatchObject({ to: 'owner@x.com', fromName: 'Kreate' }); // unconfirmed: the platform speaks
     const link = linkFrom(mail.sent[0]!.text);
     const verify = await app.request(link, { redirect: 'manual' });
     expect(verify.status).toBe(302); expect(new URL(verify.headers.get('location')!).pathname).toBe('/auth/continue');
@@ -40,7 +40,7 @@ describe('app', () => {
     const first = await post('/api/signup', { email: 'a@x.com', studioName: 'S', over18: true }, '');
     const again = await post('/api/signup', { email: 'a@x.com', studioName: 'T', over18: true }, '');
     expect([first.status, await first.json()]).toEqual([again.status, await again.json()]);
-    await drain(); expect(mail.sent.map((m) => [m.to, m.fromName])).toEqual([['a@x.com', 'Khroma'], ['a@x.com', 'Khroma']]);
+    await drain(); expect(mail.sent.map((m) => [m.to, m.fromName])).toEqual([['a@x.com', 'Kreate'], ['a@x.com', 'Kreate']]);
   });
   it('serves a client only their project and its previews', async () => {
     const { api, post, json, mail, drain, redeemLatest, signupOwner, seedProject, addCulling, storage } = await boot();

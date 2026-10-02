@@ -22,7 +22,7 @@ export function makeEmailHandlers(getTransport: () => Transport | null, domain: 
       const [studio] = await ctx.db.select({ name: studios.name, confirmedAt: studios.confirmedAt }).from(studios).where(eq(studios.id, ctx.studioId)).limit(1);
       const [owner] = await ctx.db.select({ email: users.email }).from(users).where(and(eq(users.studioId, ctx.studioId), eq(users.role, 'owner'))).orderBy(asc(users.createdAt)).limit(1);
       const r = renderTemplate(o.template, o.vars);
-      await t.send({ to: o.to, ...r, messageId: `<email:${o.key}@${domain}>`, fromName: studio?.confirmedAt ? studio.name : 'Khroma', replyTo: owner?.email ?? null });
+      await t.send({ to: o.to, ...r, messageId: `<email:${o.key}@${domain}>`, fromName: studio?.confirmedAt ? studio.name : 'Kreate', replyTo: owner?.email ?? null });
     },
   };
 }
