@@ -31,7 +31,7 @@ const text = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSO
 const fail = (e: unknown) => ({ content: [{ type: 'text' as const, text: errorMessage(e) }], isError: true });
 
 export function buildServer(env: Env): McpServer {
-  const server = new McpServer({ name: 'opengallery-free-media', version: '0.1.0' });
+  const server = new McpServer({ name: 'khroma-free-media', version: '0.1.0' });
 
   server.registerTool(
     'search_media',

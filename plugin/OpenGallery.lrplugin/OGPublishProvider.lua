@@ -6,7 +6,7 @@ local LrPathUtils = import 'LrPathUtils'
 local LrApplication = import 'LrApplication'
 local LrErrors = import 'LrErrors'
 local LrLogger = import 'LrLogger'
-local logger = LrLogger('OpenGallery'); logger:enable('logfile')
+local logger = LrLogger('Khroma'); logger:enable('logfile')
 
 local OGApi = require 'OGApi'
 local OGHttp = require 'OGLrHttp'
@@ -28,8 +28,8 @@ provider.exportPresetFields = {
   { key = 'mountPath', default = '' },
 }
 provider.small_icon = nil
-provider.titleForGoToPublishedCollection = 'Open in OpenGallery'
-provider.titleForGoToPublishedPhoto = 'Open in OpenGallery'
+provider.titleForGoToPublishedCollection = 'Open in Khroma'
+provider.titleForGoToPublishedPhoto = 'Open in Khroma'
 
 local function api(settings)
   return OGApi.new{ baseUrl = OGUtil.trim(settings.serverUrl), token = OGUtil.trim(settings.token), http = OGHttp }
@@ -41,7 +41,7 @@ function provider.sectionsForTopOfDialog(f, propertyTable)
   local status = LrView.share('og_status')
   return {
     {
-      title = 'OpenGallery server',
+      title = 'Khroma server',
       f:row { f:static_text { title = 'Server URL', width = LrView.share('og_label') }, f:edit_field { value = bind 'serverUrl', width_in_chars = 40, immediate = true } },
       f:row { f:static_text { title = 'Plugin token', width = LrView.share('og_label') }, f:password_field { value = bind 'token', width_in_chars = 40, immediate = true } },
       f:row { f:static_text { title = 'NAS mount path', width = LrView.share('og_label') }, f:edit_field { value = bind 'mountPath', width_in_chars = 34, immediate = true },
@@ -144,11 +144,11 @@ function provider.processRenderedPhotos(functionContext, exportContext)
   local exportSession = exportContext.exportSession
   local settings = assert(exportContext.propertyTable)
   local cs = collectionSettings(exportContext)
-  if not cs.projectId or cs.projectId == '' then LrErrors.throwUserError('This collection is not linked to an OpenGallery project. Edit the collection settings.') end
+  if not cs.projectId or cs.projectId == '' then LrErrors.throwUserError('This collection is not linked to an Khroma project. Edit the collection settings.') end
   local a = api(settings)
   local catalog = LrApplication.activeCatalog()
   local n = exportSession:countRenditions()
-  local progress = exportContext:configureProgress { title = n > 1 and ('Uploading ' .. n .. ' finals to OpenGallery') or 'Uploading final to OpenGallery' }
+  local progress = exportContext:configureProgress { title = n > 1 and ('Uploading ' .. n .. ' finals to Khroma') or 'Uploading final to Khroma' }
   exportSession:recordRemoteCollectionId(cs.projectId)
   local failures = {}
   for i, rendition in exportContext:renditions { stopIfCanceled = true } do

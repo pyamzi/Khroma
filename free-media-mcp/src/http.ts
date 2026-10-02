@@ -1,4 +1,4 @@
-export const USER_AGENT = 'OpenGallery-FreeMediaMCP/0.1 (+https://github.com/pyamzi/OpenGallery)';
+export const USER_AGENT = 'Khroma-FreeMediaMCP/0.1 (+https://khroma.ink)';
 
 export class HttpError extends Error {
   constructor(public readonly status: number, url: string) {

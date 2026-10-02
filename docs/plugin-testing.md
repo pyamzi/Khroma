@@ -4,7 +4,7 @@ Automated coverage: `tests/plugin/luac.test.ts` compiles every file; `tests/plug
 
 Setup: `npm run demo` (prints an owner link and a client link), create a token in Settings → Access, a small catalog whose RAWs live under the demo photos dir (`Clients/<client>/<project>/raw`), and the mount path set to that dir.
 
-- [ ] Plug-in Manager shows OpenGallery as **Installed and running**; `~/Documents/LrClassicLogs/OpenGallery.log` has a "plugin loaded" line.
+- [ ] Plug-in Manager shows Khroma as **Installed and running**; `~/Documents/LrClassicLogs/Khroma.log` has a "plugin loaded" line.
 - [ ] Publish service setup: Verify connection reports the studio and token name; a wrong token reports "token rejected".
 - [ ] Create Published Collection: project popup lists projects "Title · Client"; choosing one stores it; creating a new project makes it appear in the admin Files browser.
 - [ ] Add two RAWs, Publish: both appear as **Draft** in the admin project Photos tab; the client gallery does not show them; the log shows "source <id>" for each.
