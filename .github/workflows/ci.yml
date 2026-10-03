@@ -9,10 +9,13 @@ jobs:
         with: { fetch-depth: 0 } # gitleaks scans the PR's commit range
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
-      - run: sudo apt-get update && sudo apt-get install -y libimage-exiftool-perl
+      - run: sudo apt-get update && sudo apt-get install -y libimage-exiftool-perl lua5.4
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run plugin:zip
+      - uses: actions/upload-artifact@v4
+        with: { name: OpenGallery.lrplugin, path: dist/OpenGallery.lrplugin.zip }
       - run: npm audit --audit-level=high
       - uses: gitleaks/gitleaks-action@v2
         env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}", GITLEAKS_ENABLE_COMMENTS: "false", GITLEAKS_ENABLE_SUMMARY: "false" }

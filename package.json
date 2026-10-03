@@ -18,7 +18,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json",
     "db:generate": "drizzle-kit generate",
     "test:e2e": "npm run build && playwright test",
-    "demo": "npm run build && tsx tests/e2e/demo.ts"
+    "demo": "npm run build && tsx tests/e2e/demo.ts",
+    "plugin:zip": "rm -f dist/OpenGallery.lrplugin.zip && mkdir -p dist && (cd plugin && zip -qr ../dist/OpenGallery.lrplugin.zip OpenGallery.lrplugin -x '*.DS_Store')"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",

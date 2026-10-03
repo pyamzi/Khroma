@@ -11,6 +11,8 @@ import { startWorker } from './jobs/worker.js';
 import { makeEmailHandlers } from './email/send.js';
 import { resolveTransport } from './email/transport.js';
 import { projects } from './db/schema.js';
+import { filesHandlers } from './domain/files.js';
+import { enqueue } from './jobs/queue.js';
 
 async function main() {
   const config = loadConfig(process.env);
@@ -18,7 +20,11 @@ async function main() {
   await mkdir(join(config.photosDir, 'Clients'), { recursive: true });
   const db = openDb(join(config.dataDir, 'opengallery.db')); migrate(db);
 
-  const handlers = { ...makeEmailHandlers(() => resolveTransport(db, config), new URL(config.baseUrl).hostname), ...makePreviewHandlers(config.photosDir) };
+  const purge = filesHandlers(config.photosDir);
+  const handlers = { ...makeEmailHandlers(() => resolveTransport(db, config), new URL(config.baseUrl).hostname), ...makePreviewHandlers(config.photosDir),
+    trash_purge: async (p: unknown, ctx: { db: typeof db; jobId: string }) => { await purge.trash_purge!(p, ctx); scheduleTrashPurge(); } };
+  const scheduleTrashPurge = () => { const day = new Date(Date.now() + 864e5).toISOString().slice(0, 10); enqueue(db, { kind: 'trash_purge', payload: {}, idempotencyKey: `trash_purge:${day}`, runAt: Date.parse(`${day}T03:00:00Z`) }); };
+  enqueue(db, { kind: 'trash_purge', payload: {}, idempotencyKey: `trash_purge:${new Date().toISOString().slice(0, 10)}` });
   const stopWorker = startWorker(db, handlers, { intervalMs: 2000 });
 
   const report = await rescan(db, config.photosDir);

@@ -6,3 +6,6 @@ body {
   margin: 0;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
+/* Grid children and form controls must be allowed to shrink below their intrinsic width on phones. */
+input, select, textarea { min-width: 0; }
+.grid > * { min-width: 0; }

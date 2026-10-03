@@ -24,13 +24,22 @@ export function canAccessProject(db: Db, s: SessionRow | null, p: ProjectRow): A
     return c?.emails.some((e) => e.toLowerCase() === s.subject.toLowerCase()) ? 'ok' : 'forbidden';
   }
   if (s.kind === 'guest') return s.projectId === p.id ? 'ok' : 'forbidden';
-  return 'forbidden'; // plugin / mcp tokens: milestones 4 and 10
+  if (s.kind === 'plugin') return !s.projectId || s.projectId === p.id ? 'ok' : 'forbidden';
+  return 'forbidden'; // mcp tokens: milestone 10
 }
 
 export function listProjectsFor(db: Db, s: SessionRow | null): ProjectRow[] {
   return db.select().from(projects).all().filter((p) => canAccessProject(db, s, p) === 'ok');
 }
 
+/** Mutating plugin routes need a read+write token. */
+export function requireScope(scope: 'write'): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const s = c.get('session');
+    if (!s || (scope === 'write' && !s.scope.includes('write'))) return c.json({ error: 'read_only' }, 403);
+    await next();
+  };
+}
 export function requireKind(...kinds: SessionRow['kind'][]): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const s = c.get('session');
@@ -56,5 +65,13 @@ export function loadPhoto(): MiddlewareHandler<WithPhoto> {
     const p = ph && db.select().from(projects).where(eq(projects.id, ph.projectId)).get();
     if (!ph || ph.missing || !p || canAccessProject(db, c.get('session'), p) !== 'ok') return c.json({ error: 'not found' }, 404);
     c.set('project', p); c.set('photo', ph); await next();
+  };
+}
+
+export function ownerOnly(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const s = c.get('session'); const u = s && c.get('db').select().from(users).where(eq(users.email, s.subject)).get();
+    if (!u || u.role !== 'owner') return c.json({ error: 'forbidden' }, 403);
+    await next();
   };
 }

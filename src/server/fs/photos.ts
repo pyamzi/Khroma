@@ -105,6 +105,7 @@ export async function indexProjectMedia(db: Db, photosDir: string, projectId: st
 
 export function makePreviewHandlers(photosDir: string): Handlers {
   return {
+    index_project: async (payload, { db }) => { await indexProjectMedia(db, photosDir, (payload as { projectId: string }).projectId); },
     preview: async (payload, { db }) => {
       const { photoId } = payload as { photoId: string };
       const p = db.select().from(photos).where(eq(photos.id, photoId)).get();

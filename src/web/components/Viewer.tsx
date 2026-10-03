@@ -4,10 +4,10 @@ import type { Me } from '../App';
 import type { PhotoItem, CommentRow } from '../types';
 
 type Region = { x: number; y: number; w: number; h: number };
-type Props = { photos: PhotoItem[]; index: number; me: Me; commentsOn: boolean; onIndex: (i: number) => void; onClose: () => void; onToggle: (id: string) => void; onCommented: () => void };
+type Props = { photos: PhotoItem[]; index: number; me: Me; commentsOn: boolean; onIndex: (i: number) => void; onClose: () => void; onToggle: (id: string) => void; onCommented: () => void; onResolve?: (commentId: string, resolved: boolean) => Promise<void> };
 type Gesture = { x: number; y: number; drawing: boolean; timer?: ReturnType<typeof setTimeout> };
 
-export function Viewer({ photos, index, me, commentsOn, onIndex, onClose, onToggle, onCommented }: Props) {
+export function Viewer({ photos, index, me, commentsOn, onIndex, onClose, onToggle, onCommented, onResolve }: Props) {
   const photo = photos[index]!;
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [draft, setDraft] = useState<Region | null>(null);
@@ -98,6 +98,7 @@ export function Viewer({ photos, index, me, commentsOn, onIndex, onClose, onTogg
         <div className="absolute inset-x-3 bottom-24 rounded-xl bg-neutral-900 p-4 shadow-xl" role="dialog" aria-label="Comment">
           <div className="flex items-start justify-between"><p className="text-sm text-neutral-400">{thread.author === me.subject ? 'You' : thread.author}{thread.resolvedAt ? ' · resolved' : ''}</p><button onClick={() => setThread(null)} className="min-h-8 px-2" aria-label="Close thread">✕</button></div>
           <p className="mt-1">{thread.text}</p>
+          {onResolve && <button onClick={() => { void onResolve(thread.id, !thread.resolvedAt).then(() => { setComments((cs) => cs.map((c) => (c.id === thread.id ? { ...c, resolvedAt: thread.resolvedAt ? null : new Date().toISOString() } : c))); setThread(null); }); }} className="mt-3 min-h-9 rounded-lg bg-white px-3 text-sm text-black">{thread.resolvedAt ? 'Unresolve' : 'Resolve'}</button>}
         </div>)}
     </div>);
 }

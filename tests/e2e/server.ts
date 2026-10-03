@@ -38,5 +38,11 @@ export async function startTestServer() {
   mail.sent.length = 0; // drop the setup email
   const stopWorker = startWorker(db, handlers, { intervalMs: 200 });
   const server = serve({ fetch: createApp({ db, config, photosDir, webRoot: './dist/web' }).fetch, port });
-  return { baseUrl, projectId: p.id!, db, mailbox: (): Mail[] => mail.sent, async stop() { stopWorker(); server.close(); await rm(photosDir, { recursive: true, force: true }); } };
+  const signInLink = async (email: string): Promise<string> => {
+    const before = mail.sent.length;
+    await fetch(`${baseUrl}/api/auth/request`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: JSON.stringify({ email }) });
+    for (let i = 0; i < 50 && mail.sent.length <= before; i++) await new Promise((r) => setTimeout(r, 100));
+    return mail.sent[before]!.text.match(/https?:\/\/[^\s]+\/auth\/[A-Za-z0-9_-]+/)![0];
+  };
+  return { baseUrl, projectId: p.id!, db, mailbox: (): Mail[] => mail.sent, signInLink, async stop() { stopWorker(); server.close(); await rm(photosDir, { recursive: true, force: true }); } };
 }
