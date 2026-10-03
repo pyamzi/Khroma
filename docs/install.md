@@ -1,6 +1,6 @@
 # Install
 
-OpenGallery runs as one Docker Compose stack on a NAS. Everything the app writes lives in two folders you choose.
+Kreate runs as one Docker Compose stack on a NAS. Everything the app writes lives in two folders you choose.
 
 ## Prerequisites
 

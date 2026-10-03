@@ -22,7 +22,7 @@ local function chooseProject(projects)
     for _, p in ipairs(projects) do items[#items + 1] = { title = p.title .. '  ·  ' .. tostring(p.client), value = p.id } end
     local f = LrView.osFactory()
     local result = LrDialogs.presentModalDialog {
-      title = 'Send for culling to OpenGallery',
+      title = 'Send for culling to Kreate',
       actionVerb = 'Send',
       contents = f:column { bind_to_object = props, spacing = f:control_spacing(),
         f:static_text { title = 'Project', font = '<system/bold>' },
@@ -52,16 +52,16 @@ LrTasks.startAsyncTask(function()
   local photos = catalog:getTargetPhotos()
   if #photos == 0 then LrDialogs.message('No photos selected', 'Select the photos to send for culling.', 'info') return end
   local services = catalog:getPublishServices(_PLUGIN.id)
-  if #services == 0 then LrDialogs.message('No OpenGallery publish service', 'Set one up in the Publish Services panel first.', 'info') return end
+  if #services == 0 then LrDialogs.message('No Kreate publish service', 'Set one up in the Publish Services panel first.', 'info') return end
   local settings = services[1]:getPublishSettings()
   local a = OGApi.new{ baseUrl = OGUtil.trim(settings.serverUrl), token = OGUtil.trim(settings.token), http = OGHttp }
   local projects, perr = a:projects()
-  if not projects then LrDialogs.message('Could not reach OpenGallery', tostring(perr), 'critical') return end
-  if #projects == 0 then LrDialogs.message('No projects', 'Create a project in OpenGallery first.', 'info') return end
+  if not projects then LrDialogs.message('Could not reach Kreate', tostring(perr), 'critical') return end
+  if #projects == 0 then LrDialogs.message('No projects', 'Create a project in Kreate first.', 'info') return end
   local projectId = chooseProject(projects)
   if not projectId then return end
 
-  local progress = LrProgressScope { title = 'Sending previews to OpenGallery' }
+  local progress = LrProgressScope { title = 'Sending previews to Kreate' }
   local sent, unchanged, failed, firstError = 0, 0, 0, nil
   -- Previews are keyed by RAW file name (raw/<name>), so two selected photos with one name (second shooter, counter rollover,
   -- virtual copies) would overwrite each other: refuse them. ponytail: a clash with a photo sent in an EARLIER batch is not detected;
@@ -92,5 +92,5 @@ LrTasks.startAsyncTask(function()
   local summary = string.format('%d sent, %d unchanged, %d failed.', sent, unchanged, failed)
   if #dupLines > 0 then summary = summary .. '\n\n' .. table.concat(dupLines, '\n') end
   if firstError then summary = summary .. '\nFirst error: ' .. firstError end
-  LrDialogs.message('OpenGallery culling', summary, failed > 0 and 'warning' or 'info')
+  LrDialogs.message('Kreate culling', summary, failed > 0 and 'warning' or 'info')
 end)

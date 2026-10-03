@@ -15,7 +15,7 @@ export function Shell({ section, title, children, actions }: { section: string; 
   return (
     <div className="min-h-screen bg-neutral-100 dark:bg-black md:flex">
       <aside className="hidden w-60 shrink-0 flex-col gap-1 border-r border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-950 md:flex">
-        <p className="mb-4 px-3 text-lg font-semibold">OpenGallery</p>
+        <p className="mb-4 px-3 text-lg font-semibold">Kreate</p>
         {NAV.map((n) => item(n, false))}
         <button disabled className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-neutral-400"><span className="w-5 text-center">▦</span>Calendar <span className="ml-auto text-xs">M6</span></button>
         <button onClick={signout} className="mt-auto min-h-11 px-3 text-left text-sm text-neutral-500">Sign out</button>

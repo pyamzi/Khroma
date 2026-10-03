@@ -14,7 +14,7 @@ LrTasks.startAsyncTask(function()
     if pid and pid ~= '' then byProject[pid] = byProject[pid] or {}; table.insert(byProject[pid], photo) end
   end
   local services = catalog:getPublishServices(_PLUGIN.id)
-  if #services == 0 then LrDialogs.message('No OpenGallery publish service', 'Set one up in the Publish Services panel first.', 'info') return end
+  if #services == 0 then LrDialogs.message('No Kreate publish service', 'Set one up in the Publish Services panel first.', 'info') return end
   local settings = services[1]:getPublishSettings()
   local a = OGApi.new{ baseUrl = OGUtil.trim(settings.serverUrl), token = OGUtil.trim(settings.token), http = OGHttp }
   local lines = {}
@@ -29,5 +29,5 @@ LrTasks.startAsyncTask(function()
     lines[#lines + 1] = r and string.format('%s: %d updated, %d unchanged', pid:sub(1, 8), r.updated, r.skipped) or (pid:sub(1, 8) .. ': ' .. tostring(err))
   end
   if #lines == 0 then lines[1] = 'No synced picks yet. Run "Sync picks" first.' end
-  LrDialogs.message('OpenGallery editing progress', table.concat(lines, '\n'), 'info')
+  LrDialogs.message('Kreate editing progress', table.concat(lines, '\n'), 'info')
 end)

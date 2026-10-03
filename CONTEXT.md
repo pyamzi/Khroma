@@ -1,4 +1,4 @@
-# OpenGallery
+# Kreate
 
 A hosted service where photographers and other creative studios keep their own images, deliver them to clients, and pull them into websites and designs through Claude alongside free-license media.
 
@@ -49,7 +49,7 @@ Works found through a Provider under a free license: Creative Commons, public do
 _Avoid_: Creative Commons images, stock, stock photos
 
 **Provider**:
-A search service OpenGallery queries for Free media, such as Openverse, Pexels, or Pixabay.
+A search service Kreate queries for Free media, such as Openverse, Pexels, or Pixabay.
 _Avoid_: Source, API, backend
 
 **Source**:

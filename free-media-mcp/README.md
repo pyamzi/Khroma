@@ -1,4 +1,4 @@
-# OpenGallery Free Media MCP
+# Kreate Free Media MCP
 
 A remote [MCP](https://modelcontextprotocol.io) server on Cloudflare Workers that lets Claude search free, legally reusable images and videos from **Openverse**, **Pexels**, and **Pixabay** through one interface. Every result carries a normalized license block and a ready-made credit line, so Claude can drop media into Canva designs or web pages without guessing at rights.
 
@@ -122,7 +122,7 @@ User: *"Find a golden hour wedding couple photo for the homepage hero and credit
 - `imageURL`/`fullHDURL` need "full API access"; standard keys get `largeImageURL` (1280 px).
 - Rate limit 100 req/min per key. Search terms are capped at 100 characters.
 
-**All providers**: every request sends `User-Agent: OpenGallery-FreeMediaMCP/0.1 (+https://github.com/pyamzi/OpenGallery)` and times out after 8 s. Nothing is downloaded or stored; the server only forwards metadata and URLs.
+**All providers**: every request sends `User-Agent: Kreate-FreeMediaMCP/0.1 (+https://kreate.so)` and times out after 8 s. Nothing is downloaded or stored; the server only forwards metadata and URLs.
 
 ## Caching
 

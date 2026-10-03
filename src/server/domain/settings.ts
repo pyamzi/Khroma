@@ -19,7 +19,7 @@ export type UserRow = typeof users.$inferSelect; export type JobRow = typeof job
 export async function getStudio(db: Db): Promise<StudioSettings> {
   const [s] = await db.select().from(studios).limit(1);
   const { studioName: _ignored, ...rest } = (await getSetting<Partial<StudioSettings>>(db, 'studio')) ?? {};
-  return StudioSettings.parse({ ...rest, studioName: s?.name ?? 'OpenGallery' });
+  return StudioSettings.parse({ ...rest, studioName: s?.name ?? 'Kreate' });
 }
 export async function setStudio(db: Db, patch: Partial<StudioSettings>, actor: string): Promise<StudioSettings> {
   const next = StudioSettings.parse({ ...(await getStudio(db)), ...patch });

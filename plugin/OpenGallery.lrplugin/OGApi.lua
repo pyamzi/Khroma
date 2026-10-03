@@ -1,4 +1,4 @@
--- OpenGallery API client. Pure Lua 5.1: no Lightroom imports, so it runs under a plain interpreter for tests.
+-- Kreate API client. Pure Lua 5.1: no Lightroom imports, so it runs under a plain interpreter for tests.
 -- http adapter contract: get(url, headers) / post(url, body, headers) / delete(url, headers) / postMultipart(url, chunks, headers)
 -- each returning body (string or nil), status (number or nil), err (string or nil). Headers are { { field = ..., value = ... } }.
 local json = require 'json'
